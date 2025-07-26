@@ -1,0 +1,47 @@
+type FetcherOptions = {
+  token?: string;
+  accessToken?: string;
+};
+
+export const fetcher = async (
+  functionName: string,
+  params: Record<string, any>,
+  options: FetcherOptions = {}
+): Promise<any> => {
+  const API_KEY = process.env.EXPO_PUBLIC_API_KEY ?? "";
+  const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
+
+  const finalParams = {
+    ...params,
+    ...options
+  }
+
+  try {
+    const body: Record<string, any> = {
+      apiKey: API_KEY,
+      function: functionName,
+      params: finalParams
+    };
+
+    // Attach token if provided
+    if (options.token) body.params.token = options.token;
+    if (options.accessToken) body.params.accessToken = options.accessToken;
+
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    return {
+      success: false,
+      data: null,
+      error: error.message || "Something went wrong",
+    };
+  }
+};
