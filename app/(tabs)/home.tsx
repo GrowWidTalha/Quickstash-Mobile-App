@@ -9,6 +9,7 @@ import RecentSaves from '~/components/RecentSaves';
 import { useSaves } from '~/contexts/SavesContext';
 import { NetworkIndicator } from '~/components/NetworkIndicator';
 import { OfflineTestPanel } from '~/components/OfflineTestPanel';
+import { ShareIntentTest } from '~/components/ShareIntentTest';
 import { useState } from 'react';
 
 export default function Home() {
@@ -22,6 +23,7 @@ export default function Home() {
     fetchSaves 
   } = useSaves();
   const [showTestPanel, setShowTestPanel] = useState(false);
+  const [showShareTest, setShowShareTest] = useState(false);
 
   const onRefresh = async () => {
     await fetchSaves();
@@ -37,12 +39,19 @@ export default function Home() {
       <SearchInput />
       <NetworkIndicator className="bg-amber-50 border border-amber-200 my-2" />
       
-      {/* Development Test Button - Remove in production */}
+      {/* Development Test Buttons - Remove in production */}
       <TouchableOpacity
         onPress={() => setShowTestPanel(true)}
         className="absolute top-20 right-4 bg-gray-800 p-2 rounded-full z-10"
       >
         <Text className="text-white text-xs">🧪</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity
+        onPress={() => setShowShareTest(true)}
+        className="absolute top-20 right-16 bg-blue-600 p-2 rounded-full z-10"
+      >
+        <Text className="text-white text-xs">📤</Text>
       </TouchableOpacity>
       
       <ScrollView
@@ -76,6 +85,11 @@ export default function Home() {
       <OfflineTestPanel 
         isVisible={showTestPanel} 
         onClose={() => setShowTestPanel(false)} 
+      />
+      
+      <ShareIntentTest 
+        isVisible={showShareTest} 
+        onClose={() => setShowShareTest(false)} 
       />
     </SafeAreaView >
   );
