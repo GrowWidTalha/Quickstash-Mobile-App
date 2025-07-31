@@ -3,56 +3,27 @@ import { Text, StyleSheet, ScrollView, RefreshControl, View, ActivityIndicator, 
 import Header from '~/components/header';
 import { useAuth } from '~/contexts/AuthContext';
 import { useStashDrawer } from '~/contexts/StashDrawerContext';
-import { StashArticle } from './home';
-import { useCallback, useEffect, useState } from 'react';
-import { fetcher } from '~/lib/fetcher';
 import SearchInput from '~/components/SearchInput';
 import RecentSaves from '~/components/RecentSaves';
+import { useSaves } from '~/contexts/SavesContext';
 
 export default function Saves() {
-    const { loading: authLoading, user, accessToken, getValidAccessToken} = useAuth()
+  const { loading: authLoading } = useAuth();
   const { openDrawer } = useStashDrawer();
+  const { 
+    saves, 
+    loading, 
+    refreshing, 
+    fetchSaves 
+  } = useSaves();
 
-  const [saves, setSaves] = useState<StashArticle[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-
-  // Filter read and unread articles
-  const readArticles = saves.filter(article => article.isRead)
-  const unreadArticles = saves.filter(article => !article.isRead)
-
-  useEffect(() => {
-    fetchData()
-  }, [])
-  const fetchData = async () => {
-
-    setLoading(true)
-    try {
-      const accessToken = await getValidAccessToken()
-
-      const getSavesResponse = await fetcher("getAllSaves", { accessToken })
-      setSaves(getSavesResponse.data.saves)
-    } catch (error) {
-      // handle error if needed
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [accessToken]);
+  const onRefresh = async () => {
+    await fetchSaves();
+  };
 
   const handleAddFirstStash = () => {
-    // Open the stash drawer or navigate to add stash screen
-    openDrawer()
-    // You can implement this as needed
-  }
+    openDrawer();
+  };
 
   return (
     <SafeAreaView className='flex-1 px-4 bg-[#FCFCFC]'>

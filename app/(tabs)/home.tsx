@@ -3,75 +3,48 @@ import { Text, StyleSheet, View, Image, ActivityIndicator, TouchableOpacity, Scr
 import Header from '~/components/header';
 import SearchInput from '~/components/SearchInput';
 import { useAuth } from '../../contexts/AuthContext';
-import { useEffect, useState, useCallback } from 'react';
-import { fetcher } from '~/lib/fetcher';
 import UnreadStashList from '~/components/UnreadStashList';
 import { useStashDrawer } from '~/contexts/StashDrawerContext';
 import RecentSaves from '~/components/RecentSaves';
-
-// Define the article type with isRead property
-export interface StashArticle {
-  id: string;
-  title: string;
-  url: string;
-  excerpt: string;
-  imageUrl: string;
-  isArchived: boolean;
-  isRead: boolean;
-  createdAt: string;
-  updatedAt: string;
-  readTime: string;
-  source: string
-}
+import { useSaves } from '~/contexts/SavesContext';
+import { NetworkIndicator } from '~/components/NetworkIndicator';
+import { OfflineTestPanel } from '~/components/OfflineTestPanel';
+import { useState } from 'react';
 
 export default function Home() {
-  const { loading: authLoading, user, getValidAccessToken, accessToken } = useAuth()
+  const { loading: authLoading } = useAuth();
   const { openDrawer } = useStashDrawer();
+  const { 
+    saves, 
+    loading, 
+    refreshing, 
+    unreadArticles, 
+    fetchSaves 
+  } = useSaves();
+  const [showTestPanel, setShowTestPanel] = useState(false);
 
-  const [saves, setSaves] = useState<StashArticle[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-
-  // Filter read and unread articles
-  const readArticles = saves.filter(article => article.isRead)
-  const unreadArticles = saves.filter(article => !article.isRead)
-
-  useEffect(() => {
-    fetchData()
-  }, [])
-  const fetchData = async () => {
-    setLoading(true)
-    try {
-      const accessToken = await getValidAccessToken()
-
-      const getSavesResponse = await fetcher("getAllSaves", { accessToken })
-      setSaves(getSavesResponse.data.saves)
-    } catch (error) {
-      // handle error if needed
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [accessToken]);
+  const onRefresh = async () => {
+    await fetchSaves();
+  };
 
   const handleAddFirstStash = () => {
-    // Open the stash drawer or navigate to add stash screen
-    openDrawer()
-    // You can implement this as needed
-  }
+    openDrawer();
+  };
 
   return (
     <SafeAreaView className='flex-1 px-4 bg-[#FCFCFC]'>
       <Header title="Home" variant="master" />
       <SearchInput />
+      <NetworkIndicator className="bg-amber-50 border border-amber-200 my-2" />
+      
+      {/* Development Test Button - Remove in production */}
+      <TouchableOpacity
+        onPress={() => setShowTestPanel(true)}
+        className="absolute top-20 right-4 bg-gray-800 p-2 rounded-full z-10"
+      >
+        <Text className="text-white text-xs">🧪</Text>
+      </TouchableOpacity>
+      
       <ScrollView
         className='flex-1 h-full mt-4'
         showsVerticalScrollIndicator={false}
@@ -99,6 +72,11 @@ export default function Home() {
           </>
         )}
       </ScrollView>
+      
+      <OfflineTestPanel 
+        isVisible={showTestPanel} 
+        onClose={() => setShowTestPanel(false)} 
+      />
     </SafeAreaView >
   );
 }

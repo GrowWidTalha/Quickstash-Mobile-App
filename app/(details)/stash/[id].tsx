@@ -4,13 +4,14 @@ import { useLocalSearchParams } from 'expo-router'
 import Header from '~/components/header'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useAuth } from '~/contexts/AuthContext'
-import { fetcher } from '~/lib/fetcher'
 import { SvgFromXml } from 'react-native-svg'
 import { svgIcons } from '~/components/CustomSvgIcons'
 import { Menu, Provider } from 'react-native-paper'
 import { MaterialCommunityIcons, Feather, AntDesign } from '@expo/vector-icons'
 import RenderHtml, { defaultSystemFonts } from 'react-native-render-html'
 import { WebView } from 'react-native-webview'
+import { useSaves } from '~/contexts/SavesContext'
+import { NetworkIndicator } from '~/components/NetworkIndicator'
 
 // Extend system fonts for code
 
@@ -52,7 +53,8 @@ const ActionsDropDown = ({ onOpenOriginal, onMarkAsRead, onArchive, onShare, onD
 
 const ReadStashPage = () => {
     const { id } = useLocalSearchParams()
-    const { loading: authLoading, getValidAccessToken } = useAuth()
+    const { loading: authLoading } = useAuth()
+    const { getSaveById, isOnline } = useSaves()
     const [article, setArticle] = useState<StashArticleDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -61,9 +63,12 @@ const ReadStashPage = () => {
     const fetchData = async () => {
         setLoading(true); setError(null)
         try {
-            const token = await getValidAccessToken()
-            const res = await fetcher('getSaveById', { accessToken: token, id })
-            setArticle(res.data)
+            const { data, error: fetchError } = await getSaveById(id as string)
+            if (fetchError) {
+                setError(fetchError)
+            } else {
+                setArticle(data)
+            }
         } catch {
             setError('Failed to load article. Please try again.')
         } finally { setLoading(false) }
@@ -74,11 +79,11 @@ const ReadStashPage = () => {
     // HTML tag styles
     const tagsStyles = useMemo(() => ({
         body: { color: '#232c38', fontSize: 16, lineHeight: 28 },
-        h1: { fontSize: 28, fontWeight: '700', marginVertical: 12 },
-        h2: { fontSize: 24, fontWeight: '700', marginVertical: 10 },
-        h3: { fontSize: 20, fontWeight: '700', marginVertical: 8 },
+        h1: { fontSize: 28, fontWeight: '700' as const, marginVertical: 12 },
+        h2: { fontSize: 24, fontWeight: '700' as const, marginVertical: 10 },
+        h3: { fontSize: 20, fontWeight: '700' as const, marginVertical: 8 },
         p: { marginBottom: 10 },
-        a: { color: '#1e88e5', textDecorationLine: 'underline' },
+        a: { color: '#1e88e5', textDecorationLine: 'underline' as const },
         code: { fontFamily: 'monospace', backgroundColor: '#f5f5f5', padding: 4 },
         pre: { fontFamily: 'monospace', backgroundColor: '#f5f5f5', padding: 8 },
     }), [])
@@ -110,6 +115,7 @@ const ReadStashPage = () => {
         <Provider>
             <SafeAreaView style={styles.container}>
                 <Header title='' variant='detail' detailAction={<ActionsDropDown onOpenOriginal={() => Linking.openURL(article.url)} onMarkAsRead={() => {}} onArchive={() => {}} onShare={() => {}} onDelete={() => {}} />} />
+                <NetworkIndicator className="bg-amber-50 border border-amber-200 my-2" />
                 <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                     <Image source={{ uri: article.imageUrl }} style={styles.image} resizeMode='cover' />
                     <Text style={styles.title}>{article.title}</Text>
@@ -118,6 +124,13 @@ const ReadStashPage = () => {
                         <View style={styles.metaItem}><SvgFromXml xml={svgIcons.clock} width={14} height={14} /><Text style={styles.metaText}>{article.readTime} Min Read</Text></View>
                     </View>
                     <Text style={styles.excerpt}>{article.excerpt}</Text>
+                    {!isOnline && article.content === 'Content not available offline' && (
+                        <View style={styles.offlineNotice}>
+                            <Text style={styles.offlineNoticeText}>
+                                📱 You're viewing this article offline. Full content may not be available.
+                            </Text>
+                        </View>
+                    )}
                     <RenderHtml
                         contentWidth={contentWidth}
                         source={{ html: article.content }}
@@ -142,6 +155,8 @@ const styles = StyleSheet.create({
     metaItem: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
     metaText: { marginLeft: 4, color: '#888', fontSize: 14 },
     excerpt: { color: '#666', fontSize: 16, marginBottom: 16 },
+    offlineNotice: { backgroundColor: '#fff3cd', borderColor: '#ffeaa7', borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 16 },
+    offlineNoticeText: { color: '#856404', fontSize: 14, textAlign: 'center' },
     errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     errorText: { fontSize: 18, color: 'red' },
     retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#232c38', borderRadius: 8 },

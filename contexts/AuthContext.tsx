@@ -1,27 +1,20 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import * as SecureStore from 'expo-secure-store';
-import { fetcher } from '~/lib/fetcher';
+import { supabase } from '~/constants/supabase';
+import { Session, User, AuthError } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: any;
+  user: User | null;
   loading: boolean;
   sessionLoaded: boolean;
-  signIn: (email: string, password: string) => Promise<any>;
-  signUp: (email: string, password: string) => Promise<any>;
+  signIn: (email: string, password: string) => Promise<{ error?: AuthError | null }>;
+  signUp: (email: string, password: string) => Promise<{ error?: AuthError | null }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<any>;
+  resetPassword: (email: string) => Promise<{ error?: AuthError | null }>;
   getValidAccessToken: () => Promise<string | null>;
   accessToken: string | null;
 }
 
-const SESSION_KEY = 'user_session';
 
-type SessionType = {
-  user: any;
-  token: string;
-  refreshToken: string;
-  expiresAt: number; // unix timestamp in ms
-};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -34,156 +27,225 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<any>(null);
-  const [session, setSession] = useState<SessionType | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
   useEffect(() => {
     const loadSession = async () => {
-      console.log('~ 🚀: Loading session from SecureStore...');
+      console.log('~ 🚀: Loading session from Supabase...');
       setLoading(true);
-      const sessionStr = await SecureStore.getItemAsync(SESSION_KEY);
-      if (sessionStr) {
-        const sessionObj: SessionType = JSON.parse(sessionStr);
-        console.log('~ 🚀: Session found:', sessionObj);
-        setSession(sessionObj);
-        setUser(sessionObj.user);
-      } else {
-        console.log('~ 🚀: No session found.');
+      
+      try {
+        // Get initial session from Supabase
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        
+        if (initialSession) {
+          console.log('~ 🚀: Initial session found:', initialSession);
+          setSession(initialSession);
+          setUser(initialSession.user);
+        } else {
+          console.log('~ 🚀: No initial session found.');
+        }
+      } catch (error) {
+        console.error('~ 🚀: Error loading initial session:', error);
       }
+      
       setSessionLoaded(true);
       setLoading(false);
     };
+
     loadSession();
-  }, []);
 
-  const saveSession = async (sessionObj: SessionType) => {
-    console.log('~ 🚀: Saving session:', sessionObj);
-    setSession(sessionObj);
-    setUser(sessionObj.user);
-    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(sessionObj));
-  };
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('~ 🚀: Auth state changed:', event, session?.user?.email);
+        
+        if (session) {
+          setSession(session);
+          setUser(session.user);
+        } else {
+          setSession(null);
+          setUser(null);
+        }
+        
+        setLoading(false);
+      }
+    );
 
-  const clearSession = async () => {
-    console.log('~ 🚀: Clearing session...');
-    setSession(null);
-    setUser(null);
-    await SecureStore.deleteItemAsync(SESSION_KEY);
-  };
-
-  const refreshAccessToken = useCallback(async (refreshToken: string) => {
-    console.log('~ 🚀: Refreshing access token...');
-    const data = await fetcher("refreshToken", { refresh_token: refreshToken });
-    console.log('~ 🚀: Token refresh response:', data);
-    const token = data.token || data.access_token;
-    const refresh = data.refreshToken || data.refresh_token || refreshToken;
-    const expiresIn = data.expiresIn || data.expires_in;
-
-    if (data.success && token && expiresIn) {
-      const newSession: SessionType = {
-        user: data.user,
-        token,
-        refreshToken: refresh,
-        expiresAt: Date.now() + expiresIn * 1000,
-      };
-      await saveSession(newSession);
-      console.log('~ 🚀: Token refreshed and session updated.');
-      return newSession.token;
-    } else {
-      console.log('~ 🚀: Token refresh failed. Clearing session...');
-      await clearSession();
-      return null;
-    }
+    return () => subscription.unsubscribe();
   }, []);
 
   const getValidAccessToken = useCallback(async () => {
     console.log('~ 🚀: Getting valid access token...');
+    
     if (!session) {
       console.log('~ 🚀: No session available.');
       return null;
     }
-    if (Date.now() < session.expiresAt - 60 * 1000) {
+
+    // Check if token is expired (with 5 minute buffer)
+    const expiresAt = session.expires_at;
+    const now = Math.floor(Date.now() / 1000);
+    
+    if (expiresAt && now < expiresAt - 300) {
       console.log('~ 🚀: Access token still valid.');
-      return session.token;
+      return session.access_token;
     }
-    console.log('~ 🚀: Token expired. Refreshing...');
-    return await refreshAccessToken(session.refreshToken);
-  }, [session, refreshAccessToken]);
+
+    console.log('~ 🚀: Token expired or expiring soon. Refreshing...');
+    
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      
+      if (error) {
+        console.error('~ 🚀: Token refresh failed:', error);
+        return null;
+      }
+      
+      if (data.session) {
+        console.log('~ 🚀: Token refreshed successfully.');
+        return data.session.access_token;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('~ 🚀: Error refreshing token:', error);
+      return null;
+    }
+  }, [session]);
 
   const signIn = async (email: string, password: string) => {
     console.log('~ 🚀: Signing in with:', email);
     setLoading(true);
-    const { data, success } = await fetcher("login", { email, password });
-    console.log('~ 🚀: Sign-in response:', data);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    const token = data.access_token;
-    const refresh = data.refresh_token;
-    const expiresIn = data.expires_in;
+      console.log('~ 🚀: Sign-in response:', { success: !error, user: data.user?.email });
 
-    if (success && token && refresh && expiresIn) {
-      const sessionObj: SessionType = {
-        user: data.user,
-        token,
-        refreshToken: refresh,
-        expiresAt: Date.now() + expiresIn * 1000,
-      };
-      await saveSession(sessionObj);
-      console.log('~ 🚀: Sign-in successful. Session saved.');
-    } else {
-      console.log('~ 🚀: Sign-in failed. Clearing session...');
-      await clearSession();
+      if (error) {
+        console.log('~ 🚀: Sign-in failed:', error.message);
+        setLoading(false);
+        return { error };
+      }
+
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.user);
+        console.log('~ 🚀: Sign-in successful. Session set.');
+      }
+      
+      setLoading(false);
+      return { error: null };
+    } catch (error) {
+      console.error('~ 🚀: Sign-in error:', error);
+      setLoading(false);
+      return { error: error as AuthError };
     }
-    setLoading(false);
-    return data;
   };
 
   const signUp = async (email: string, password: string) => {
     console.log('~ 🚀: Signing up with:', email);
     setLoading(true);
-    const data = await fetcher("register", { email, password });
-    console.log('~ 🚀: Sign-up response:', data);
+    
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
 
-    const token = data.access_token;
-    const refresh = data.refresh_token;
-    const expiresIn = data.expires_in;
+      console.log('~ 🚀: Sign-up response:', { success: !error, user: data.user?.email });
 
-    if (data.success && token && refresh && expiresIn) {
-      const sessionObj: SessionType = {
-        user: data.user,
-        token,
-        refreshToken: refresh,
-        expiresAt: Date.now() + expiresIn * 1000,
-      };
-      await saveSession(sessionObj);
-      console.log('~ 🚀: Sign-up successful. Session saved.');
-    } else {
-      console.log('~ 🚀: Sign-up failed. Clearing session...');
-      await clearSession();
+      if (error) {
+        console.log('~ 🚀: Sign-up failed:', error.message);
+        setLoading(false);
+        return { error };
+      }
+
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.user);
+        console.log('~ 🚀: Sign-up successful. Session set.');
+      } else {
+        console.log('~ 🚀: Sign-up successful but requires email confirmation.');
+      }
+      
+      setLoading(false);
+      return { error: null };
+    } catch (error) {
+      console.error('~ 🚀: Sign-up error:', error);
+      setLoading(false);
+      return { error: error as AuthError };
     }
-    setLoading(false);
-    return data;
   };
 
   const signOut = async () => {
     console.log('~ 🚀: Signing out...');
     setLoading(true);
-    await clearSession();
-    setLoading(false);
-    console.log('~ 🚀: Signed out.');
+    
+    try {
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('~ 🚀: Sign-out error:', error);
+      } else {
+        console.log('~ 🚀: Signed out successfully.');
+      }
+      
+      setSession(null);
+      setUser(null);
+      setLoading(false);
+    } catch (error) {
+      console.error('~ 🚀: Sign-out error:', error);
+      setLoading(false);
+    }
   };
 
   const resetPassword = async (email: string) => {
     console.log('~ 🚀: Requesting password reset for:', email);
     setLoading(true);
-    const data = await fetcher("resetPassword", { email });
-    console.log('~ 🚀: Reset password response:', data);
-    setLoading(false);
-    return data;
+    
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: 'your-app://reset-password',
+      });
+
+      console.log('~ 🚀: Reset password response:', { success: !error });
+
+      if (error) {
+        console.log('~ 🚀: Reset password failed:', error.message);
+        setLoading(false);
+        return { error };
+      }
+
+      console.log('~ 🚀: Password reset email sent successfully.');
+      setLoading(false);
+      return { error: null };
+    } catch (error) {
+      console.error('~ 🚀: Reset password error:', error);
+      setLoading(false);
+      return { error: error as AuthError };
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, sessionLoaded, signIn, signUp, signOut, resetPassword, getValidAccessToken, accessToken: session ? session.token : null }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      sessionLoaded, 
+      signIn, 
+      signUp, 
+      signOut, 
+      resetPassword, 
+      getValidAccessToken, 
+      accessToken: session?.access_token || null 
+    }}>
       {children}
     </AuthContext.Provider>
   );

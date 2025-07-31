@@ -1,15 +1,15 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Pressable, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Pressable, ActivityIndicator, Image, ScrollView, Keyboard } from 'react-native';
 import { StashDrawerContext } from '../contexts/StashDrawerContext';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
-import { addStash } from '../lib/actions';
+import { useSaves } from '~/contexts/SavesContext';
 import { useAuth } from '~/contexts/AuthContext';
 
 const TAGS = ['Tech', 'Reactjs', 'Programming', 'Writing', 'Psychology'];
 
 const StashDrawer = () => {
-  const { accessToken } = useAuth()
+  const { addSave } = useSaves();
   const { isOpen, closeDrawer } = useContext(StashDrawerContext)!;
   const [visible, setVisible] = useState(false);
   const [url, setUrl] = useState('');
@@ -17,10 +17,29 @@ const StashDrawer = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const translateY = useSharedValue(400);
   const opacity = useSharedValue(0);
-  // Dummy access token for now; replace with real one from context/auth
 
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,7 +71,7 @@ const StashDrawer = () => {
     setError(null);
     setSuccess(false);
     try {
-      const result = await addStash(url, accessToken!);
+      const result = await addSave(url);
       if (result.success) {
         setSuccess(true);
         setUrl('');
@@ -86,17 +105,32 @@ const StashDrawer = () => {
         <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
       </Pressable>
       {/* Bottom sheet */}
-      <Animated.View style={[styles.sheet, animatedSheetStyle]}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.handle} />
+      <Animated.View 
+        style={[
+          styles.sheet, 
+          animatedSheetStyle,
+          { bottom: keyboardHeight > 0 ? keyboardHeight : 0 }
+        ]}
+      >
+        <View style={styles.handle} />
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {success ? (
-            <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 24 }}>
-              <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 8 }}>New Stash Added <Text style={{ fontSize: 18 }}>✅</Text></Text>
-              <Image source={require('~/assets/images/stashed-success-illustration.png')} style={{ width: 140, height: 140, marginBottom: 12 }} resizeMode="contain" />
-              <Text style={{ fontSize: 18, fontWeight: '600', color: '#232c38' }}>Stashed successfully</Text>
+            <View style={styles.successContainer}>
+              <Text style={styles.successTitle}>New Stash Added <Text style={styles.successIcon}>✅</Text></Text>
+              <Image 
+                source={require('~/assets/images/stashed-success-illustration.png')} 
+                style={styles.successImage} 
+                resizeMode="contain" 
+              />
+              <Text style={styles.successText}>Stashed successfully</Text>
             </View>
           ) : (
-            <>
+            <View style={styles.contentContainer}>
               <Text style={styles.title}>Add a New Stash</Text>
               <Text style={styles.subtitle}>Save a link, article, or idea you want to revisit later.</Text>
               <Text style={styles.label}>URL</Text>
@@ -115,9 +149,9 @@ const StashDrawer = () => {
                   returnKeyType="done"
                 />
               </View>
-              {error && <Text style={{ color: 'red', marginBottom: 8, textAlign: 'center' }}>{error}</Text>}
+              {error && <Text style={styles.errorText}>{error}</Text>}
               <TouchableOpacity
-                style={[styles.stashButton, loading && { opacity: 0.7 }]}
+                style={[styles.stashButton, loading && styles.stashButtonDisabled]}
                 onPress={handleStash}
                 disabled={loading || !url.trim()}
               >
@@ -127,9 +161,9 @@ const StashDrawer = () => {
                   <Text style={styles.stashButtonText}>＋  Stash</Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           )}
-        </KeyboardAvoidingView>
+        </ScrollView>
       </Animated.View>
     </>
   );
@@ -140,18 +174,24 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
     backgroundColor: '#fff',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    padding: 24,
-    paddingBottom: 36,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 20,
     zIndex: 200,
+    maxHeight: '70%', // Reduced max height
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 24,
+    paddingBottom: 36,
   },
   handle: {
     alignSelf: 'center',
@@ -159,7 +199,34 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: '#e0e0e0',
+    marginTop: 16,
     marginBottom: 16,
+  },
+  successContainer: {
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 24,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  successIcon: {
+    fontSize: 18,
+  },
+  successImage: {
+    width: 140,
+    height: 140,
+    marginBottom: 12,
+  },
+  successText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#232c38',
+  },
+  contentContainer: {
+    flex: 1,
   },
   title: {
     fontSize: 22,
@@ -202,6 +269,11 @@ const styles = StyleSheet.create({
     color: '#222',
     paddingVertical: 4,
   },
+  errorText: {
+    color: 'red',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
   tagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -240,6 +312,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+  },
+  stashButtonDisabled: {
+    opacity: 0.7,
   },
   stashButtonText: {
     color: '#fff',
