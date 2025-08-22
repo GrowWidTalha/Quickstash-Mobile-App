@@ -38,7 +38,9 @@ interface SavesContextType {
   updateSave: (id: string, updates: Partial<StashArticle>) => Promise<{ success: boolean; error?: string }>;
   deleteSave: (id: string) => Promise<{ success: boolean; error?: string }>;
   markAsRead: (id: string) => Promise<{ success: boolean; error?: string }>;
+  markAsUnread: (id: string) => Promise<{ success: boolean; error?: string }>;
   archiveSave: (id: string) => Promise<{ success: boolean; error?: string }>;
+  unarchiveSave: (id: string) => Promise<{ success: boolean; error?: string }>;
   getSaveById: (id: string) => Promise<{ data: StashArticleDetail | null; error?: string }>;
   syncOfflineActions: () => Promise<void>;
   
@@ -131,9 +133,11 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     try {
       if (isOnline) {
         const response = await fetcher("addSave", { url });
+
+        console.log(response)
         
-        if (response.success && response.data?.save) {
-          setSaves(prev => [response.data.save, ...prev]);
+        if (response.success && response?.data) {
+          setSaves(prev => [response?.data, ...prev]);
           return { success: true };
         } else {
           return { success: false, error: response.error || 'Failed to add save' };
@@ -243,9 +247,19 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     return updateSave(id, { isRead: true });
   }, [updateSave]);
 
+  // Mark as unread
+  const markAsUnread = useCallback(async (id: string) => {
+    return updateSave(id, { isRead: false });
+  }, [updateSave]);
+
   // Archive save
   const archiveSave = useCallback(async (id: string) => {
     return updateSave(id, { isArchived: true });
+  }, [updateSave]);
+
+  // Unarchive save
+  const unarchiveSave = useCallback(async (id: string) => {
+    return updateSave(id, { isArchived: false });
   }, [updateSave]);
 
   // Get save by ID
@@ -384,6 +398,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     archiveSave,
     getSaveById,
     syncOfflineActions,
+    markAsUnread,
+    unarchiveSave,
     
     // Computed
     readArticles,

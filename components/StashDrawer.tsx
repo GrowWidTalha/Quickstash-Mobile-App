@@ -66,7 +66,7 @@ const StashDrawer = () => {
   };
 
   const handleStash = async () => {
-    console.log("running")
+    console.log("running te te te")
     setLoading(true);
     setError(null);
     setSuccess(false);

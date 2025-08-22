@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { supabase } from '~/constants/supabase';
 import { Session, User, AuthError } from '@supabase/supabase-js';
+import { fetcher } from '../lib/fetcher';
 
 interface AuthContextType {
   user: User | null;
@@ -138,6 +139,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.session) {
         setSession(data.session);
         setUser(data.user);
+        await fetcher("register", {email: data.user.email, password: password})
         console.log('~ 🚀: Sign-in successful. Session set.');
       }
       
@@ -151,35 +153,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string) => {
-    console.log('~ 🚀: Signing up with:', email);
+    console.log("~ 🚀: Signing up with:", email);
     setLoading(true);
-    
+  
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
       });
-
-      console.log('~ 🚀: Sign-up response:', { success: !error, user: data.user?.email });
-
+  
+      console.log("~ 🚀: Sign-up response:", { success: !error, user: data.user?.email });
+  
       if (error) {
-        console.log('~ 🚀: Sign-up failed:', error.message);
+        console.log("~ ❌: Sign-up failed:", error.message);
         setLoading(false);
         return { error };
       }
-
-      if (data.session) {
-        setSession(data.session);
-        setUser(data.user);
-        console.log('~ 🚀: Sign-up successful. Session set.');
-      } else {
-        console.log('~ 🚀: Sign-up successful but requires email confirmation.');
+  
+      const user = data.user;
+      const session = data.session;
+  
+      // 🔐 Case 1: Email confirmation is disabled — session returned immediately
+      if (user && session) {
+        const dbUser = await fetcher("login", { supabaseUserId: user.id });
+  
+        if (!dbUser.success) {
+          setLoading(false);
+          return { error: { message: "Failed to sync user with DB" } };
+        }
+  
+        setSession(session);
+        setUser(user);
+        console.log("~ ✅: Sign-up complete. Session set.");
       }
-      
+  
+      // 🔐 Case 2: Email confirmation is enabled — session is null
+      if (!session) {
+        console.log("~ ✅: Sign-up successful. Awaiting email confirmation.");
+        // You might show a screen: "Check your inbox to confirm your email"
+      }
+  
       setLoading(false);
       return { error: null };
     } catch (error) {
-      console.error('~ 🚀: Sign-up error:', error);
+      console.error("~ 🚨: Sign-up error:", error);
       setLoading(false);
       return { error: error as AuthError };
     }

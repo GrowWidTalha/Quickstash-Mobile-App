@@ -14,6 +14,8 @@ export const fetcher = async (
   const API_KEY = process.env.EXPO_PUBLIC_API_KEY ?? "";
   const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
 
+  console.log(API_KEY, " ",API_URL)
+
   // Get access token automatically unless skipAuth is true
   let accessToken: string | null = null;
   if (!options.skipAuth) {
