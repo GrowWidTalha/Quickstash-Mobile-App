@@ -10,6 +10,7 @@ import { useSaves } from '~/contexts/SavesContext';
 import { NetworkIndicator } from '~/components/NetworkIndicator';
 import { ShareIntentTest } from '~/components/ShareIntentTest';
 import { useState } from 'react';
+import { AutoSkeletonView, AutoSkeletonIgnoreView } from 'react-native-auto-skeleton';
 
 export default function Home() {
   const { loading: authLoading } = useAuth();
