@@ -10,7 +10,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -38,10 +39,14 @@
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "com.quickstash.app",
-            "CFBundleURLSchemes": ["com.quickstash.app"]
+            "CFBundleURLSchemes": [
+              "com.quickstash.app"
+            ]
           }
         ],
-        "NSUserActivityTypes": ["NSUserActivityTypeBrowsingWeb"]
+        "NSUserActivityTypes": [
+          "NSUserActivityTypeBrowsingWeb"
+        ]
       }
     },
     "android": {
@@ -58,11 +63,16 @@
               "scheme": "com.quickstash.app"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         },
         {
           "action": "SEND",
-          "category": ["DEFAULT"],
+          "category": [
+            "DEFAULT"
+          ],
           "data": [
             {
               "mimeType": "text/plain"

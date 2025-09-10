@@ -40,6 +40,15 @@ const Splash = () => {
     }
   }, [sessionLoaded, loading, user, isMounted]);
 
+  // Conditional rendering based on loading and unmounting states
+  if (loading || !sessionLoaded) {
+    return (
+      <View className="bg-white flex-1 items-center justify-center">
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
+
   if (isUnmounting || !isMounted) {
     return null;
   }

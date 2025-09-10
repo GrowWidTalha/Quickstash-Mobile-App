@@ -6,11 +6,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const ATSImageHandler = (imageUrl: string) => {
-  if (imageUrl.startsWith("http://")) {
-    return imageUrl.replace("http://", "https://");
+export const extractHostname = (url: string): string => {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname.replace(/^www\./, '');
+  } catch (error) {
+    console.error("Invalid URL:", url, error);
+    return "";
   }
-  return imageUrl;
+};
+
+export const ATSImageHandler = (featured_image_url: string) => {
+  if (featured_image_url.startsWith("http://")) {
+    return featured_image_url.replace("http://", "https://");
+  }
+  return featured_image_url;
 };
 
 export const openExternalUrl = (url: string) => {

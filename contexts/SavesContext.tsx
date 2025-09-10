@@ -3,6 +3,7 @@ import { fetcher } from '~/lib/fetcher';
 import { useAuth } from './AuthContext';
 import { OfflineStorage } from '~/lib/offlineStorage';
 import NetInfo from '@react-native-community/netinfo';
+import { extractHostname } from '~/lib/utils';
 
 // Types
 export interface StashArticle {
@@ -10,12 +11,11 @@ export interface StashArticle {
   title: string;
   url: string;
   excerpt: string;
-  imageUrl: string;
+  featured_image_url: string;
   isArchived: boolean;
   isRead: boolean;
   createdAt: string;
   updatedAt: string;
-  readTime: number;
   source: string;
 }
 
@@ -41,7 +41,7 @@ interface SavesContextType {
   markAsUnread: (id: string) => Promise<{ success: boolean; error?: string }>;
   archiveSave: (id: string) => Promise<{ success: boolean; error?: string }>;
   unarchiveSave: (id: string) => Promise<{ success: boolean; error?: string }>;
-  getSaveById: (id: string) => Promise<{ data: StashArticleDetail | null; error?: string }>;
+  getSaveById: (id: string) => Promise<{ data: StashArticle | null; error?: string }>;
   syncOfflineActions: () => Promise<void>;
   
   // Computed
@@ -105,21 +105,22 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         const response = await fetcher("getAllSaves");
         
         if (response.success && response.data?.saves) {
-          setSaves(response.data.saves);
+          const savesWithSource = response.data.saves.map((save: any) => ({ ...save, source: extractHostname(save.url) }));
+          setSaves(savesWithSource);
           // Cache the data
-          await OfflineStorage.cacheSaves(response.data.saves);
+          await OfflineStorage.cacheSaves(savesWithSource);
         } else {
           setError(response.error || 'Failed to fetch saves');
         }
       } else {
         // Use cached data when offline
         const cachedSaves = await OfflineStorage.getCachedSaves();
-        setSaves(cachedSaves);
+        setSaves(cachedSaves.map((save: any) => ({ ...save, source: extractHostname(save.url) })));
       }
     } catch (err: any) {
       // Fallback to cached data on error
       const cachedSaves = await OfflineStorage.getCachedSaves();
-      setSaves(cachedSaves);
+      setSaves(cachedSaves.map((save: any) => ({ ...save, source: extractHostname(save.url) })));
       setError(err.message || 'Failed to fetch saves');
     } finally {
       setLoading(false);
@@ -149,12 +150,12 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
           title: 'Loading...',
           url,
           excerpt: '',
-          imageUrl: '',
+          featured_image_url: '',
           isArchived: false,
           isRead: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          readTime: 0,
+          // readTime: 0,
           source: 'offline'
         };
         
@@ -193,13 +194,13 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
       } else {
         // Optimistic update for offline
         setSaves(prev => prev.map(save => 
-          save.id === id ? { ...save, ...updates } : save
+          save.id === id ? { ...save, ...updates, source: updates.url ? extractHostname(updates.url) : save.source } : save
         ));
         
         // Queue for later sync
         await OfflineStorage.addOfflineAction({
           type: 'update',
-          data: { id, ...updates }
+          data: { id, ...updates, source: updates.url ? extractHostname(updates.url) : undefined }
         });
         setHasOfflineActions(true);
         
@@ -292,9 +293,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         if (foundSave) {
           // For offline saves, we might not have the full content
           // Create a basic StashArticleDetail with available data
-          const saveDetail: StashArticleDetail = {
+          const saveDetail: StashArticle = {
             ...foundSave,
-            content: foundSave.excerpt || 'Content not available offline'
           };
           return { data: saveDetail };
         } else {
@@ -315,9 +315,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         const foundSave = cachedSaves.find(save => save.id === id);
         
         if (foundSave) {
-          const saveDetail: StashArticleDetail = {
+          const saveDetail: StashArticle = {
             ...foundSave,
-            content: foundSave.excerpt || 'Content not available offline'
           };
           return { data: saveDetail };
         }
@@ -413,4 +412,4 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
       {children}
     </SavesContext.Provider>
   );
-}; 
+};

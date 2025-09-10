@@ -1,23 +1,18 @@
-import { View, Text, ScrollView, Image, ActivityIndicator, TouchableOpacity, Linking, Dimensions, StyleSheet, Alert } from 'react-native'
-import React, { useEffect, useState, useMemo } from 'react'
 import { useLocalSearchParams } from 'expo-router'
-import Header from '~/components/header'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useAuth } from '~/contexts/AuthContext'
-import { SvgFromXml } from 'react-native-svg'
-import { svgIcons } from '~/components/CustomSvgIcons'
-import { Menu, Provider, Dialog, Portal, Button } from 'react-native-paper'
-import { MaterialCommunityIcons, Feather, AntDesign } from '@expo/vector-icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Dimensions, Image, Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { Provider } from 'react-native-paper'
 import RenderHtml, { defaultSystemFonts } from 'react-native-render-html'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import { SvgFromXml } from 'react-native-svg'
 import { WebView } from 'react-native-webview'
-import { useSaves } from '~/contexts/SavesContext'
-import { NetworkIndicator } from '~/components/NetworkIndicator'
-import { Link } from 'expo-router'
 import ActionsDropDown from '~/components/ActionDropDown'
-
-// Extend system fonts for code
-
-// TODO: Add spacing and formatting for code snippets
+import { svgIcons } from '~/components/CustomSvgIcons'
+import Header from '~/components/header'
+import { NetworkIndicator } from '~/components/NetworkIndicator'
+import { useAuth } from '~/contexts/AuthContext'
+import { useSaves } from '~/contexts/SavesContext'
+import sanitizeHtml from 'sanitize-html'
 const systemFonts = [...defaultSystemFonts, 'Menlo', 'Courier', 'monospace']
 
 
@@ -28,23 +23,29 @@ interface StashArticleDetail {
     title: string;
     url: string;
     excerpt: string;
-    imageUrl: string;
+    featured_image_url: string;
     isArchived: boolean;
     isRead: boolean;
     createdAt: string;
     updatedAt: string;
-    readTime: number;
     source: string;
-    content: string;
 }
 
 const ReadStashPage = () => {
     const { id } = useLocalSearchParams()
     const { loading: authLoading } = useAuth()
     const { getSaveById, isOnline, markAsRead, markAsUnread, archiveSave, unarchiveSave, deleteSave } = useSaves()
+
     const [article, setArticle] = useState<StashArticleDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+
+    const [extracting, setExtracting] = useState(false)
+    const [extractError, setExtractError] = useState<string | null>(null)
+    const webviewRef = useRef<WebView | null>(null)
+    const extractionTimeoutRef = useRef<number | null>(null)
+
+    
 
     useEffect(() => { fetchData() }, [])
     const fetchData = async () => {
@@ -60,6 +61,150 @@ const ReadStashPage = () => {
             setError('Failed to load article. Please try again.')
         } finally { setLoading(false) }
     }
+
+    const INJECTED_EXTRACTOR = `
+    (function(){
+      function loadScript(src, cb){
+        var s=document.createElement('script'); s.src=src; s.onload=cb; s.onerror=cb; document.documentElement.appendChild(s);
+      }
+      function stripDangerous(el){
+        // remove script/style/iframe/link/noscript
+        var bad = el.querySelectorAll('script,noscript,iframe,link,style');
+        bad.forEach(function(n){ n.parentNode && n.parentNode.removeChild(n) });
+        // remove inline handlers
+        var all = el.getElementsByTagName('*');
+        for(var i=0;i<all.length;i++){
+          var attrs = all[i].attributes;
+          for(var j=attrs.length-1;j>=0;j--){
+            if(attrs[j].name && attrs[j].name.toLowerCase().indexOf('on') === 0){
+              all[i].removeAttribute(attrs[j].name);
+            }
+          }
+        }
+      }
+      function sendResult(article){
+        try {
+          var lead = null;
+          var og = document.querySelector('meta[property=\"og:image\"]') || document.querySelector('meta[name=\"twitter:image\"]');
+          if(og) lead = og.getAttribute('content');
+          var container = document.createElement('div');
+          container.innerHTML = article.content || '';
+          stripDangerous(container);
+          var cleanHTML = container.innerHTML;
+          window.ReactNativeWebView.postMessage(JSON.stringify({ok:true, article:{ title: article.title || document.title, content: cleanHTML, byline: article.byline || '', excerpt: article.excerpt || (article.textContent || '').slice(0,200), lead_image_url: article.lead_image_url || lead || null }}));
+        } catch(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ok:false, err: 'post failed: ' + e.message}));
+        }
+      }
+      function tryParse(){
+        try{
+          if(window.Readability){
+            try {
+              var doc = document.cloneNode(true);
+              var article = new Readability(doc).parse();
+              if(article && article.content && article.content.length > 20){
+                return sendResult(article);
+              }
+            } catch(e) { /* swallow, fallthrough to fallback */ }
+          }
+          // fallback: try to find article/main
+          var el = document.querySelector('article') || document.querySelector('main') || document.querySelector('[role=\"article\"]') || document.body;
+          var articleFallback = {
+            title: document.title,
+            content: el ? el.innerHTML : document.body.innerHTML,
+            textContent: el ? el.innerText : document.body.innerText,
+            excerpt: (el ? (el.innerText||'').slice(0,300) : (document.body.innerText||'').slice(0,300)),
+            byline: ''
+          };
+          return sendResult(articleFallback);
+        } catch (e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ok:false, err: e.message}));
+        }
+      }
+      function start(){
+        // Try load Readability, but continue with fallback if it doesn't work quickly
+        if(window.Readability){
+          return tryParse();
+        }
+        loadScript('https://unpkg.com/@mozilla/readability@0.4.4/Readability.js', function(){
+          tryParse();
+        });
+        // fallback attempt after 2s regardless
+        setTimeout(tryParse, 2000);
+      }
+      if(document.readyState === 'complete' || document.readyState === 'interactive') start();
+      else document.addEventListener('DOMContentLoaded', start);
+    })();
+    true;
+    `
+
+    const startExtraction = (url: string) => {
+        console.log("Starting Extraction process")
+        setExtractError(null)
+        setExtracting(true)
+        // clear previous timeout
+        if (extractionTimeoutRef.current) {
+            clearTimeout(extractionTimeoutRef.current)
+            extractionTimeoutRef.current = null
+        }
+        // set a safety timeout (10s)
+        extractionTimeoutRef.current = setTimeout(() => {
+            setExtracting(false)
+            setExtractError('Extraction timed out — site may block extraction or be paywalled.')
+        }, 10000) as unknown as number
+
+        // load the URL into the hidden webview (we render it below).
+        // just ensure webviewRef.current exists and reloads with new url
+        if (webviewRef.current) {
+            webviewRef.current.injectJavaScript(`window.location.href = ${JSON.stringify(url)}; true;`)
+        }
+        // Alternatively we mount the WebView with source uri prop tied to article.url.
+        // The WebView below will run the injected script on load.
+    }
+
+    const onWebViewMessage = useCallback((e: any) => {
+        console.log('onWebViewMessage', e)
+        if (!e?.nativeEvent?.data) return
+        let payload = null
+        try {
+            payload = JSON.parse(e.nativeEvent.data)
+        } catch (err) {
+            setExtracting(false)
+            setExtractError('Bad extractor response')
+            return
+        }
+        if (!payload.ok) {
+            setExtracting(false)
+            setExtractError(payload.err || 'Extraction failed')
+            if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null }
+            return
+        }
+
+        const art = payload.article
+        // sanitize in RN
+        const clean = sanitizeHtml(art.content || '', {
+            allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'figure', 'figcaption', 'pre', 'code']),
+            allowedAttributes: {
+                ...sanitizeHtml.defaults.allowedAttributes,
+                img: ['src', 'alt', 'width', 'height', 'loading'],
+                a: ['href', 'name', 'target', 'rel']
+            },
+            allowedSchemes: ['http', 'https', 'data', 'mailto'],
+            transformTags: {
+                'a': function (tagName, attribs) {
+                    // ensure links open externally later
+                    return { tagName: 'a', attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' } };
+                }
+            }
+        });
+
+        // update article excerpt with sanitized HTML and featured image if any
+        console.log('Article updated', clean)
+        setArticle(prev => prev ? ({ ...prev, excerpt: clean, featured_image_url: (art.lead_image_url || prev.featured_image_url) }) : prev)
+        setExtracting(false)
+        setExtractError(null)
+        if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null }
+    }, [])
 
     const handleMarkAsRead = async () => {
         if (!article?.id) return { success: false, error: 'Article ID not found.' };
@@ -153,54 +298,112 @@ const ReadStashPage = () => {
         <SafeAreaView className="flex-1 p-4 bg-gray-50"><Header title='' variant='detail' /><View className="flex-1 justify-center items-center"><Text className="text-lg text-red-500">{error}</Text><TouchableOpacity onPress={fetchData} className="mt-4 px-5 py-2 bg-gray-800 rounded-lg"><Text className="text-white font-semibold">Retry</Text></TouchableOpacity></View></SafeAreaView>
     )
 
-    return (
-        <Provider>
-            <SafeAreaView className="flex-1 bg-gray-50">
+        return (
+            <Provider>
+              <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
                 <Header
-                    title=''
-                    variant='detail'
-                    detailAction={(
-                        <ActionsDropDown
-                            onOpenOriginal={() => Linking.openURL(article.url)}
-                            onMarkAsRead={handleMarkAsRead}
-                            onMarkAsUnread={handleMarkAsUnread}
-                            onArchive={handleArchive}
-                            onUnarchive={handleUnarchive}
-                            onShare={handleShare}
-                            onDelete={handleDelete}
-                            isRead={article.isRead}
-                            isArchived={article.isArchived}
-                        />
-                    )}
+                  title=""
+                  variant="detail"
+                  detailAction={(
+                    <ActionsDropDown
+                      onOpenOriginal={() => Linking.openURL(article.url)}
+                      onMarkAsRead={handleMarkAsRead}
+                      onMarkAsUnread={handleMarkAsUnread}
+                      onArchive={handleArchive}
+                      onUnarchive={handleUnarchive}
+                      onShare={handleShare}
+                      onDelete={handleDelete}
+                      isRead={article?.isRead}
+                      isArchived={article?.isArchived}
+                    />
+                  )}
                 />
-                <NetworkIndicator className="bg-amber-50 border border-amber-200 my-2" />
-                <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
-                    <Image source={{ uri: article.imageUrl }} className="w-full h-52 rounded-2xl bg-gray-100 mb-4" resizeMode='cover' />
-                    <Text className="text-2xl font-bold text-gray-800 mb-3">{article.title}</Text>
-                    <View className="flex-row mb-3">
-                        <View className="flex-row items-center mr-4"><SvgFromXml xml={svgIcons.pen} width={14} height={14} /><Text className="ml-1 text-gray-500 text-sm">{article.source}</Text></View>
-                        <View className="flex-row items-center"><SvgFromXml xml={svgIcons.clock} width={14} height={14} /><Text className="ml-1 text-gray-500 text-sm">{article.readTime} Min Read</Text></View>
+          
+                <NetworkIndicator className="bg-amber-50 border border-amber-200" />
+          
+                {/* <-- WRAPPER THAT ENSURES FULL HEIGHT */}
+                <View style={{ flex: 1 }}>
+                  {/* DEBUG: temporary backgroundColor to see ScrollView bounds */}
+                  <ScrollView
+                    style={{ flex: 1 /* ensure ScrollView fills wrapper */ }}
+                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1, minHeight: '100%' }}
+                    showsVerticalScrollIndicator={false}
+                    // debug checker: remove after confirming layout
+                    onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
+                  >
+                    <Image
+                      source={{ uri: article?.featured_image_url }}
+                      style={{ width: '100%', height: 208, borderRadius: 16, backgroundColor: '#e5e7eb', marginBottom: 16 }}
+                      resizeMode="cover"
+                    />
+          
+                    <Text style={{ fontSize: 22, fontWeight: '700', color: '#1f2937', marginBottom: 8 }}>{article?.title}</Text>
+          
+                    <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12 }}>
+                        <SvgFromXml xml={svgIcons.pen} width={14} height={14} />
+                        <Text style={{ marginLeft: 6, color: '#6b7280', fontSize: 13 }}>{article?.source}</Text>
+                      </View>
                     </View>
-                    <Text className="text-base text-gray-600 mb-4">{article.excerpt}</Text>
-                    {!isOnline && article.content === 'Content not available offline' && (
-                        <View className="bg-amber-100 border border-amber-300 rounded-lg p-3 mb-4">
-                            <Text className="text-amber-800 text-sm text-center">
-                                📱 You're viewing this article offline. Full content may not be available.
-                            </Text>
-                        </View>
+          
+                    {extracting && (
+                      <View style={{ padding: 12, backgroundColor: '#eef2ff', borderRadius: 8, marginBottom: 12 }}>
+                        <Text style={{ color: '#3730a3' }}>Extracting article…</Text>
+                      </View>
                     )}
-                    <RenderHtml
-                        contentWidth={contentWidth}
-                        source={{ html: article.content }}
+          
+                    {extractError && (
+                      <View style={{ padding: 12, backgroundColor: '#fff1f2', borderRadius: 8, marginBottom: 12 }}>
+                        <Text style={{ color: '#b91c1c' }}>{extractError}</Text>
+                        <TouchableOpacity style={{ marginTop: 8 }} onPress={() => { setExtractError(null); startExtraction(article.url) }}>
+                          <Text style={{ color: '#1e88e5' }}>Retry extraction</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+          
+                    {!isOnline && article?.excerpt === 'Content not available offline' && (
+                      <View style={{ backgroundColor: '#fff7ed', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                        <Text style={{ color: '#92400e', textAlign: 'center' }}>
+                          📱 You're viewing this article offline. Full content may not be available.
+                        </Text>
+                      </View>
+                    )}
+          
+                    {!extracting && !extractError && article?.excerpt && (
+                      <RenderHtml
+                        contentWidth={Dimensions.get('window').width - 32}
+                        source={{ html: article.excerpt }}
                         systemFonts={systemFonts}
                         tagsStyles={tagsStyles}
                         renderers={renderers}
                         renderersProps={renderersProps}
-                    />
-                </ScrollView>
-            </SafeAreaView>
-        </Provider>
-    )
+                        baseStyle={{ width: '100%', alignSelf: 'center' }}
+                      />
+                    )}
+          
+                  </ScrollView>
+                </View>
+          
+              </SafeAreaView>
+          
+              {isOnline && (
+                <WebView
+                  ref={(r: any) => webviewRef.current = r}
+                  source={{ uri: article.url }}
+                  containerStyle={{ position: 'absolute', top: -1000, left: 0, width: 1, height: 1, opacity: 0 }}
+                //   style={{ position: 'absolute', top: -1000, left: 0, width: 1, height: 1, opacity: 0 }}
+                  injectedJavaScript={INJECTED_EXTRACTOR}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  onMessage={onWebViewMessage}
+                  originWhitelist={['*']}
+                  mixedContentMode='always'
+                  allowsInlineMediaPlayback={false}
+                  startInLoadingState={false}
+                />
+              )}
+            </Provider>
+          )
 }
 
 export default ReadStashPage

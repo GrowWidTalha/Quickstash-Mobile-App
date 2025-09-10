@@ -13,8 +13,8 @@ const ProfileHeader = ({ user, userData }: ProfileHeaderProps) => {
       <View className="flex-row items-center">
         <Image
           source={
-            user?.imageUrl
-              ? { uri: user.imageUrl }
+            user?.featured_image_url
+              ? { uri: user.featured_image_url }
               : require("../assets/images/placeholder.jpg")
           }
           className="w-20 h-20 rounded-2xl bg-gray-100"

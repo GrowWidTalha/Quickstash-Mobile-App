@@ -8,7 +8,6 @@ import { useStashDrawer } from '~/contexts/StashDrawerContext';
 import RecentSaves from '~/components/RecentSaves';
 import { useSaves } from '~/contexts/SavesContext';
 import { NetworkIndicator } from '~/components/NetworkIndicator';
-import { OfflineTestPanel } from '~/components/OfflineTestPanel';
 import { ShareIntentTest } from '~/components/ShareIntentTest';
 import { useState } from 'react';
 
@@ -81,11 +80,6 @@ export default function Home() {
           </>
         )}
       </ScrollView>
-      
-      <OfflineTestPanel 
-        isVisible={showTestPanel} 
-        onClose={() => setShowTestPanel(false)} 
-      />
       
       <ShareIntentTest 
         isVisible={showShareTest} 

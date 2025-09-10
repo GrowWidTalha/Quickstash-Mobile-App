@@ -39,7 +39,7 @@ const UnreadStashList: React.FC<UnreadStashListProps> = ({ articles, onReadAll }
 
                     >
                         <Image
-                            source={{ uri: article.imageUrl }}
+                            source={{ uri: article.featured_image_url }}
                             className="w-full h-[120px] rounded-t-[18px]"
                             resizeMode="cover"
                         />
@@ -53,10 +53,10 @@ const UnreadStashList: React.FC<UnreadStashListProps> = ({ articles, onReadAll }
                                     <Text className="text-[#888] text-[13px] ml-1">{article.source}</Text>
                                 </View>
                                 <View className="w-3" />
-                                <View className="flex-row items-center">
+                                {/* <View className="flex-row items-center">
                                     <SvgFromXml xml={svgIcons.clock} color="#888" width={10} height={10} />
                                     <Text className="text-[#888] text-[13px] ml-1">{article.readTime} Min read</Text>
-                                </View>
+                                </View> */}
                             </View>
                         </View>
                     </View>
