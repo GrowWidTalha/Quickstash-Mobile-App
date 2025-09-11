@@ -182,10 +182,10 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     try {
       if (isOnline) {
         const response = await fetcher("updateSave", { id, ...updates });
-        
-        if (response.success && response.data?.save) {
+        console.log("Response from updateSave function: ",response)
+        if (response.success && response.data) {
           setSaves(prev => prev.map(save => 
-            save.id === id ? { ...save, ...response.data.save } : save
+            save.id === id ? { ...save, ...response.data } : save
           ));
           return { success: true };
         } else {
