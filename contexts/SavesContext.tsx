@@ -221,6 +221,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         
         if (response.success) {
           setSaves(prev => prev.filter(save => save.id !== id));
+          await OfflineStorage.deleteCachedSaveDetail(id);
           return { success: true };
         } else {
           return { success: false, error: response.error || 'Failed to delete save' };
@@ -234,6 +235,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
           type: 'delete',
           data: { id }
         });
+        
         setHasOfflineActions(true);
         
         return { success: true };

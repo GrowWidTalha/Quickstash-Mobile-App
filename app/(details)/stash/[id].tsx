@@ -14,6 +14,8 @@ import { useAuth } from '~/contexts/AuthContext'
 import { useSaves } from '~/contexts/SavesContext'
 import sanitizeHtml from 'sanitize-html'
 import { Skeleton } from '~/components/ui'
+import { OfflineStorage } from '~/lib/offlineStorage'
+import { extractHostname } from '~/lib/utils'
 const systemFonts = [...defaultSystemFonts, 'Menlo', 'Courier', 'monospace']
 
 
@@ -164,26 +166,27 @@ const ReadStashPage = () => {
     // The WebView below will run the injected script on load.
   }
 
-  const onWebViewMessage = useCallback((e: any) => {
-    console.log('onWebViewMessage', e)
-    if (!e?.nativeEvent?.data) return
-    let payload = null
+  const onWebViewMessage = useCallback(async (e: any) => {
+    if (!e?.nativeEvent?.data) return;
+  
+    let payload = null;
     try {
-      payload = JSON.parse(e.nativeEvent.data)
+      payload = JSON.parse(e.nativeEvent.data);
     } catch (err) {
-      setExtracting(false)
-      setExtractError('Bad extractor response')
-      return
+      setExtracting(false);
+      setExtractError('Bad extractor response');
+      return;
     }
+  
     if (!payload.ok) {
-      setExtracting(false)
-      setExtractError(payload.err || 'Extraction failed')
-      if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null }
-      return
+      setExtracting(false);
+      setExtractError(payload.err || 'Extraction failed');
+      if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+      return;
     }
-
-    const art = payload.article
-    // sanitize in RN
+  
+    const art = payload.article || {};
+    // sanitize HTML content
     const clean = sanitizeHtml(art.content || '', {
       allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'figure', 'figcaption', 'pre', 'code']),
       allowedAttributes: {
@@ -193,20 +196,73 @@ const ReadStashPage = () => {
       },
       allowedSchemes: ['http', 'https', 'data', 'mailto'],
       transformTags: {
-        'a': function (tagName, attribs) {
-          // ensure links open externally later
-          return { tagName: 'a', attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' } };
-        }
+        'a': (tagName, attribs) => ({ tagName: 'a', attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' } })
       }
     });
-
-    // update article excerpt with sanitized HTML and featured image if any
-    console.log('Article updated', clean)
-    setArticle(prev => prev ? ({ ...prev, content: clean, featured_image_url: (art.lead_image_url || prev.featured_image_url) }) : prev)
-    setExtracting(false)
-    setExtractError(null)
-    if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null }
-  }, [])
+  
+    // Build a valid saveDetail using current article state as fallback where available
+    try {
+      const saveId = article?.id ?? `offline_${Date.now()}`;
+      const saveUrl = article?.url ?? (art.url || '');
+      const saveTitle = art.title || article?.title || '';
+      const featuredImage = art.lead_image_url || article?.featured_image_url || '';
+  
+      console.log(article)
+      const saveDetail = {
+        id: saveId,
+        title: saveTitle,
+        url: saveUrl,
+        excerpt: clean.slice(0, 300),
+        featured_image_url: featuredImage,
+        isArchived: article?.isArchived ?? false,
+        isRead: article?.isRead ?? false,
+        createdAt: article?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        content: clean,
+        source: article?.source || extractHostname(saveUrl)
+      };
+  
+      // persist to device storage (may write to file or AsyncStorage depending on your OfflineStorage)
+      try {
+        await OfflineStorage.cacheSaveDetail(saveDetail);
+      } catch (cacheErr) {
+        console.error('Failed to cache save detail:', cacheErr);
+        // don't block UI if caching fails — still update UI
+      }
+  
+      // update UI. set both excerpt and content so existing render logic works
+      setArticle(prev => prev ? ({
+        ...prev,
+        excerpt: clean,
+        content: clean,
+        featured_image_url: featuredImage,
+        updatedAt: saveDetail.updatedAt,
+      }) : ({
+        // if prev was null, create minimal article object so UI can render
+        id: saveDetail.id,
+        title: saveDetail.title,
+        url: saveDetail.url,
+        excerpt: clean,
+        content: clean,
+        featured_image_url: featuredImage,
+        isArchived: saveDetail.isArchived,
+        isRead: saveDetail.isRead,
+        createdAt: saveDetail.createdAt,
+        updatedAt: saveDetail.updatedAt,
+        source: saveDetail.url ? (new URL(saveDetail.url).hostname.replace('www.', '')) : 'unknown'
+      }));
+  
+      setExtracting(false);
+      setExtractError(null);
+      if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+    } catch (err: any) {
+      console.error('Error handling extractor payload:', err);
+      setExtracting(false);
+      setExtractError(err?.message || 'Unexpected error processing article');
+      if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+    }
+  }, [article]); // include `article` so we have the latest metadata
+  
 
   const handleMarkAsRead = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
