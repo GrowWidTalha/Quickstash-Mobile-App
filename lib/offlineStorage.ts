@@ -48,53 +48,77 @@ export class OfflineStorage {
   // Cache individual save detail. This will store the HTML content in a file if it's large.
   static async cacheSaveDetail(saveDetail: StashArticleDetail): Promise<void> {
     try {
-      // Ensure articles dir exists
+      // Ensure directory exists
       await this.ensureArticlesDir();
-
+  
       // load existing metadata map
       const metaRaw = await AsyncStorage.getItem(this.SAVE_DETAILS_CACHE_KEY);
       const existingMeta = metaRaw ? JSON.parse(metaRaw) : {};
-
-      // prepare metadata entry
+  
+      // get previous entry if exists (so we can preserve filePath/smallContent)
+      const prevEntry = existingMeta[saveDetail.id] || {};
+  
+      // Base meta entry - start from previous so we retain filePath/smallContent by default
       const metaEntry: any = {
+        ...prevEntry,
         id: saveDetail.id,
-        title: saveDetail.title,
-        url: saveDetail.url,
-        featured_image_url: saveDetail.featured_image_url,
-        isArchived: saveDetail.isArchived,
-        isRead: saveDetail.isRead,
-        updatedAt: saveDetail.updatedAt || Date.now().toString(),
-        // filePath will be set if we wrote the HTML to file
-        filePath: null,
-        // small excerpt kept in meta for list display / preview
-        excerpt: saveDetail.content ? saveDetail.content.slice(0, 300) : saveDetail.excerpt || '',
+        title: saveDetail.title ?? prevEntry.title ?? '',
+        url: saveDetail.url ?? prevEntry.url ?? '',
+        featured_image_url: saveDetail.featured_image_url ?? prevEntry.featured_image_url ?? '',
+        isArchived: typeof saveDetail.isArchived === 'boolean' ? saveDetail.isArchived : (prevEntry.isArchived ?? false),
+        isRead: typeof saveDetail.isRead === 'boolean' ? saveDetail.isRead : (prevEntry.isRead ?? false),
+        updatedAt: saveDetail.updatedAt || new Date().toISOString(),
+        // excerpt updated from incoming content/excerpt or keep previous
+        excerpt: (saveDetail.content ? saveDetail.content.slice(0, 300) : (saveDetail.excerpt || prevEntry.excerpt || '')),
+        // keep filePath / smallContent by default; we'll override below if new content requires it
+        filePath: prevEntry.filePath ?? null,
+        smallContent: prevEntry.smallContent ?? null,
       };
-
-      // If content exists and is big enough, write to file and save path to meta
-      if (saveDetail.content && saveDetail.content.length >= this.HTML_TO_FILE_THRESHOLD) {
-        const filename = `${saveDetail.id}.html`;
-        const path = `${this.ARTICLES_DIR}${filename}`;
-
-        try {
-          await FileSystem.writeAsStringAsync(path, saveDetail.content, { encoding: FileSystem.EncodingType.UTF8 });
-          metaEntry.filePath = path;
-        } catch (fileErr) {
-          console.error('Failed to write article HTML to file, falling back to meta storage', fileErr);
-          // fallthrough — we'll store the content in meta object below
+  
+      // If new content was provided, decide whether to write to file or keep in meta
+      if (saveDetail.content) {
+        const content = saveDetail.content;
+        // If content is large → write to file
+        if (content.length >= this.HTML_TO_FILE_THRESHOLD) {
+          const filename = `${saveDetail.id}.html`;
+          const path = `${this.ARTICLES_DIR}${filename}`;
+  
+          try {
+            // write new content to file
+            await FileSystem.writeAsStringAsync(path, content, { encoding: FileSystem.EncodingType.UTF8 });
+            // If there was a previous different file, remove it
+            if (prevEntry.filePath && prevEntry.filePath !== path) {
+              try { await FileSystem.deleteAsync(prevEntry.filePath, { idempotent: true }); } catch(e) {}
+            }
+            metaEntry.filePath = path;
+            metaEntry.smallContent = undefined;
+          } catch (fileErr) {
+            console.error('Failed to write article HTML to file, falling back to smallContent', fileErr);
+            // fallback to storing small content in meta
+            metaEntry.smallContent = content;
+            if (prevEntry.filePath) {
+              // don't delete prevEntry.filePath here; keep it as fallback (safer) — optionally delete if you prefer
+              metaEntry.filePath = prevEntry.filePath;
+            }
+          }
+        } else {
+          // small content — store inline in meta
+          metaEntry.smallContent = content;
+          // If previously we had a file for this id, keep it or optionally delete it.
+          // I'll keep prev file (safer) but you can delete it to save space if desired:
+          // if (prevEntry.filePath) await FileSystem.deleteAsync(prevEntry.filePath, { idempotent: true });
+          metaEntry.filePath = prevEntry.filePath ?? null;
         }
-      } else if (saveDetail.content) {
-        // store small content in metadata (so you don't need extra file read)
-        metaEntry.smallContent = saveDetail.content;
-      }
-
-      // write back meta map
+      } // else: no new content provided => KEEP existing filePath / smallContent (do not clobber)
+  
+      // Write back meta map
       const updatedMeta = {
         ...existingMeta,
         [saveDetail.id]: metaEntry
       };
       await AsyncStorage.setItem(this.SAVE_DETAILS_CACHE_KEY, JSON.stringify(updatedMeta));
     } catch (error) {
-      console.error('Failed to cache save detail:', error);
+      console.error('Failed to cache save detail (merged):', error);
     }
   }
 

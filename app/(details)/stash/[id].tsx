@@ -11,7 +11,7 @@ import { svgIcons } from '~/components/CustomSvgIcons'
 import Header from '~/components/header'
 import { NetworkIndicator } from '~/components/NetworkIndicator'
 import { useAuth } from '~/contexts/AuthContext'
-import { useSaves } from '~/contexts/SavesContext'
+import { StashArticle, useSaves } from '~/contexts/SavesContext'
 import sanitizeHtml from 'sanitize-html'
 import { Skeleton } from '~/components/ui'
 import { OfflineStorage } from '~/lib/offlineStorage'
@@ -46,8 +46,16 @@ const ReadStashPage = () => {
 
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+
+  const [shouldExtract, setShouldExtract] = useState(false); // whether we should run extractor now
+  const [backgroundRefresh, setBackgroundRefresh] = useState(false); // whether we're silently refreshing
+  const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+  const ENABLE_BACKGROUND_REFRESH = false; // set to true only if you want silent refreshes
+
   const webviewRef = useRef<WebView | null>(null)
   const extractionTimeoutRef = useRef<number | null>(null)
+
+
 
 
 
@@ -56,13 +64,16 @@ const ReadStashPage = () => {
     setLoading(true); setError(null)
     try {
       const { data, error: fetchError } = await getSaveById(id as string)
-      if (fetchError) {
-        setError(fetchError)
+      if (fetchError || !data) {
+        setError(fetchError || 'Failed to fetch save')
       } else {
-        setArticle(data)
+        // set base article from API (this includes fields like id, url, title)
+        setArticle(data as StashArticle)
+        // check cache and extract only if needed (or background refresh)
+        await checkCacheThenMaybeExtract(data as StashArticle)
       }
-    } catch {
-      setError('Failed to load article. Please try again.')
+    } catch (err: any) {
+      setError(err.message || 'Failed to load article. Please try again.')
     } finally { setLoading(false) }
   }
 
@@ -166,9 +177,75 @@ const ReadStashPage = () => {
     // The WebView below will run the injected script on load.
   }
 
+  const checkCacheThenMaybeExtract = useCallback(async (articleFromAPI: StashArticle | null) => {
+    console.log("Starting CheckCacheThenMaybeExtract")
+    console.log({
+      articleFromAPI,
+    })
+    if (!articleFromAPI || !articleFromAPI.id) {
+      setShouldExtract(false);
+      return;
+    }
+
+    try {
+      const cached = await OfflineStorage.getCachedSaveDetail(articleFromAPI.id);
+      console.log("cached data: ", cached)
+      // If we have cached content, use it and DO NOT extract again by default.
+      if (cached && cached.content && cached.content.length > 100) {
+        setArticle(prev => prev ? ({
+          ...prev,
+          excerpt: cached.content,
+          content: cached.content,
+          featured_image_url: prev?.featured_image_url || cached.featured_image_url || articleFromAPI.featured_image_url,
+          updatedAt: cached.updatedAt || prev?.updatedAt || articleFromAPI.updatedAt,
+        }) : ({
+          ...articleFromAPI,
+          excerpt: cached.content,
+          content: cached.content,
+          featured_image_url: cached.featured_image_url || articleFromAPI.featured_image_url,
+          updatedAt: cached.updatedAt || articleFromAPI.updatedAt,
+          source: articleFromAPI.url ? (new URL(articleFromAPI.url).hostname.replace('www.', '')) : 'unknown'
+        }));
+
+        // Never auto-extract when cache exists unless ENABLE_BACKGROUND_REFRESH = true
+        setShouldExtract(false);
+
+        // Optionally trigger a silent background refresh — only when flag enabled
+        if (ENABLE_BACKGROUND_REFRESH && isOnline) {
+          const updatedAtMs = cached.updatedAt ? new Date(cached.updatedAt).getTime() : 0;
+          if (!cached.updatedAt || (Date.now() - updatedAtMs) > CACHE_TTL_MS) {
+            setBackgroundRefresh(true);
+            // Start background extraction but it will not clobber UI until onWebViewMessage updates the cache.
+            startExtraction(articleFromAPI.url);
+          } else {
+            setBackgroundRefresh(false);
+          }
+        } else {
+          setBackgroundRefresh(false);
+        }
+        return;
+      }
+
+      // No good cached content — extract if online, otherwise show offline message
+      setShouldExtract(true);
+      if (isOnline) {
+        startExtraction(articleFromAPI.url);
+      } else {
+        setExtractError('Content not available offline');
+      }
+    } catch (err) {
+      console.error('Cache check failed:', err);
+      // fallback extraction attempt if online
+      setShouldExtract(true);
+      if (isOnline) startExtraction(articleFromAPI.url);
+    }
+  }, [startExtraction]);
+
+
+
   const onWebViewMessage = useCallback(async (e: any) => {
     if (!e?.nativeEvent?.data) return;
-  
+
     let payload = null;
     try {
       payload = JSON.parse(e.nativeEvent.data);
@@ -177,14 +254,14 @@ const ReadStashPage = () => {
       setExtractError('Bad extractor response');
       return;
     }
-  
+
     if (!payload.ok) {
       setExtracting(false);
       setExtractError(payload.err || 'Extraction failed');
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
       return;
     }
-  
+
     const art = payload.article || {};
     // sanitize HTML content
     const clean = sanitizeHtml(art.content || '', {
@@ -199,14 +276,14 @@ const ReadStashPage = () => {
         'a': (tagName, attribs) => ({ tagName: 'a', attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' } })
       }
     });
-  
+
     // Build a valid saveDetail using current article state as fallback where available
     try {
       const saveId = article?.id ?? `offline_${Date.now()}`;
       const saveUrl = article?.url ?? (art.url || '');
       const saveTitle = art.title || article?.title || '';
       const featuredImage = art.lead_image_url || article?.featured_image_url || '';
-  
+
       console.log(article)
       const saveDetail = {
         id: saveId,
@@ -221,7 +298,7 @@ const ReadStashPage = () => {
         content: clean,
         source: article?.source || extractHostname(saveUrl)
       };
-  
+
       // persist to device storage (may write to file or AsyncStorage depending on your OfflineStorage)
       try {
         await OfflineStorage.cacheSaveDetail(saveDetail);
@@ -229,7 +306,7 @@ const ReadStashPage = () => {
         console.error('Failed to cache save detail:', cacheErr);
         // don't block UI if caching fails — still update UI
       }
-  
+
       // update UI. set both excerpt and content so existing render logic works
       setArticle(prev => prev ? ({
         ...prev,
@@ -251,8 +328,9 @@ const ReadStashPage = () => {
         updatedAt: saveDetail.updatedAt,
         source: saveDetail.url ? (new URL(saveDetail.url).hostname.replace('www.', '')) : 'unknown'
       }));
-  
+
       setExtracting(false);
+      setBackgroundRefresh(false);
       setExtractError(null);
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
     } catch (err: any) {
@@ -262,7 +340,7 @@ const ReadStashPage = () => {
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
     }
   }, [article]); // include `article` so we have the latest metadata
-  
+
 
   const handleMarkAsRead = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
@@ -402,7 +480,7 @@ const ReadStashPage = () => {
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1, minHeight: '100%' }}
             showsVerticalScrollIndicator={false}
             // debug checker: remove after confirming layout
-            onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
+            // onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
           >
             <Image
               source={{ uri: article?.featured_image_url }}
@@ -446,24 +524,24 @@ const ReadStashPage = () => {
                 renderersProps={renderersProps}
                 baseStyle={{ width: '100%', alignSelf: 'center' }}
               />
-            ): (
+            ) : (
               <>
-              <Skeleton mode="light" className="h-4 w-full mb-2 " />
-              <Skeleton mode="light" className="h-4 w-full mb-2" />
-              <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2 " />
-              <Skeleton mode="light" className="h-4 w-full mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2 " />
-              <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2 " />
-              <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-              <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2 " />
-              <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-              <Skeleton mode="light" className="h-4 w-full mb-2" />
-            </>
+                <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                <Skeleton mode="light" className="h-4 w-full mb-2" />
+                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                <Skeleton mode="light" className="h-4 w-full mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                <Skeleton mode="light" className="h-4 w-full mb-2" />
+              </>
             )}
 
           </ScrollView>
@@ -471,7 +549,7 @@ const ReadStashPage = () => {
 
       </SafeAreaView>
 
-      {isOnline && (
+      {isOnline && (shouldExtract || backgroundRefresh || extracting) && (
         <WebView
           ref={(r: any) => webviewRef.current = r}
           source={{ uri: article?.url || '' }}
