@@ -11,7 +11,12 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite"
+      "expo-sqlite",
+      "@react-native-google-signin/google-signin",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-font",
+      "expo-share-intent"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -30,26 +35,21 @@
         "style": "dark"
       }
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "com.quickstash.app",
-            "CFBundleURLSchemes": [
-              "com.quickstash.app"
-            ]
+            "CFBundleURLSchemes": ["com.quickstash.app"]
           }
         ],
-        "NSUserActivityTypes": [
-          "NSUserActivityTypeBrowsingWeb"
-        ]
+        "NSUserActivityTypes": ["NSUserActivityTypeBrowsingWeb"]
       }
     },
     "android": {
+      "package": "com.quickstash.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#ffffff"
@@ -63,16 +63,11 @@
               "scheme": "com.quickstash.app"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         },
         {
           "action": "SEND",
-          "category": [
-            "DEFAULT"
-          ],
+          "category": ["DEFAULT"],
           "data": [
             {
               "mimeType": "text/plain"
@@ -80,6 +75,18 @@
           ]
         }
       ]
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "897d3621-6f5c-44e5-9387-a57da9c124f1"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/301ad4bf-3f5e-4de0-81ff-5d00d11ce1ad"
     }
   }
 }

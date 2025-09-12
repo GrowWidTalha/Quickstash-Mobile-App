@@ -1,16 +1,13 @@
+import { ActivityIndicator, Image, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Text, StyleSheet, View, Image, ActivityIndicator, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import Header from '~/components/header';
-import SearchInput from '~/components/SearchInput';
-import { useAuth } from '../../contexts/AuthContext';
-import UnreadStashList from '~/components/UnreadStashList';
-import { useStashDrawer } from '~/contexts/StashDrawerContext';
-import RecentSaves from '~/components/RecentSaves';
-import { useSaves } from '~/contexts/SavesContext';
 import { NetworkIndicator } from '~/components/NetworkIndicator';
-import { ShareIntentTest } from '~/components/ShareIntentTest';
-import { useState } from 'react';
-import { AutoSkeletonView, AutoSkeletonIgnoreView } from 'react-native-auto-skeleton';
+import RecentSaves from '~/components/RecentSaves';
+import SearchInput from '~/components/SearchInput';
+import UnreadStashList from '~/components/UnreadStashList';
+import { useSaves } from '~/contexts/SavesContext';
+import { useStashDrawer } from '~/contexts/StashDrawerContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function Home() {
   const { loading: authLoading } = useAuth();
@@ -22,8 +19,6 @@ export default function Home() {
     unreadArticles, 
     fetchSaves 
   } = useSaves();
-  const [showTestPanel, setShowTestPanel] = useState(false);
-  const [showShareTest, setShowShareTest] = useState(false);
 
   const onRefresh = async () => {
     await fetchSaves();
@@ -40,19 +35,19 @@ export default function Home() {
       <NetworkIndicator className="bg-amber-50 border border-amber-200 my-2" />
       
       {/* Development Test Buttons - Remove in production */}
-      <TouchableOpacity
+      {/* <TouchableOpacity
         onPress={() => setShowTestPanel(true)}
         className="absolute top-20 right-4 bg-gray-800 p-2 rounded-full z-10"
       >
         <Text className="text-white text-xs">🧪</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
       
-      <TouchableOpacity
+      {/* <TouchableOpacity
         onPress={() => setShowShareTest(true)}
         className="absolute top-20 right-16 bg-blue-600 p-2 rounded-full z-10"
       >
         <Text className="text-white text-xs">📤</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
       
       <ScrollView
         className='flex-1 h-full mt-4'
@@ -81,11 +76,6 @@ export default function Home() {
           </>
         )}
       </ScrollView>
-      
-      <ShareIntentTest 
-        isVisible={showShareTest} 
-        onClose={() => setShowShareTest(false)} 
-      />
     </SafeAreaView >
   );
 }

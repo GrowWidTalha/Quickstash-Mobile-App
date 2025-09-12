@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Dimensions, Image, Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Dimensions, Image, Linking, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native'
 import { Provider } from 'react-native-paper'
 import RenderHtml, { defaultSystemFonts } from 'react-native-render-html'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -179,9 +179,6 @@ const ReadStashPage = () => {
 
   const checkCacheThenMaybeExtract = useCallback(async (articleFromAPI: StashArticle | null) => {
     console.log("Starting CheckCacheThenMaybeExtract")
-    console.log({
-      articleFromAPI,
-    })
     if (!articleFromAPI || !articleFromAPI.id) {
       setShouldExtract(false);
       return;
@@ -189,7 +186,6 @@ const ReadStashPage = () => {
 
     try {
       const cached = await OfflineStorage.getCachedSaveDetail(articleFromAPI.id);
-      console.log("cached data: ", cached)
       // If we have cached content, use it and DO NOT extract again by default.
       if (cached && cached.content && cached.content.length > 100) {
         setArticle(prev => prev ? ({
@@ -284,7 +280,6 @@ const ReadStashPage = () => {
       const saveTitle = art.title || article?.title || '';
       const featuredImage = art.lead_image_url || article?.featured_image_url || '';
 
-      console.log(article)
       const saveDetail = {
         id: saveId,
         title: saveTitle,
@@ -388,10 +383,27 @@ const ReadStashPage = () => {
     return result;
   };
 
-  const handleShare = () => {
-    if (article?.url) {
-      // Implement share functionality here
-      Alert.alert('Share', `Sharing: ${article.url}`);
+  const handleShare = async () => {
+    try {
+      if (article?.url) {
+        const result = await Share.share({
+          message: article.url, // you can also include title + text
+          url: article.url,     // on iOS, this is useful
+        });
+  
+        if (result.action === Share.sharedAction) {
+          if (result.activityType) {
+            // shared with activity type (iOS)
+            console.log("Shared with activity type:", result.activityType);
+          } else {
+            console.log("Shared successfully");
+          }
+        } else if (result.action === Share.dismissedAction) {
+          console.log("Share dismissed");
+        }
+      }
+    } catch (error: any) {
+      Alert.alert("Error", "Unable to share: " + error.message);
     }
   };
 

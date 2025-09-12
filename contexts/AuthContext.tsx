@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useCa
 import { supabase } from '~/constants/supabase';
 import { Session, User, AuthError } from '@supabase/supabase-js';
 import { fetcher } from '../lib/fetcher';
-
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -10,6 +10,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: AuthError | null }>;
   signUp: (email: string, password: string) => Promise<{ error?: AuthError | null }>;
   signOut: () => Promise<void>;
+  handleGoogleLogin: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: AuthError | null }>;
   getValidAccessToken: () => Promise<string | null>;
   accessToken: string | null;
@@ -32,6 +33,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: "907959906564-gpo7cspo79gm4k5fp0t4fn8tmomhjdhj.apps.googleusercontent.com", // from Google Cloud (Web type)
+    });
+  }, []);
 
   useEffect(() => {
     const loadSession = async () => {
@@ -250,14 +256,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { error: error as AuthError };
     }
   };
+  const handleGoogleLogin = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const { idToken } = await GoogleSignin.getTokens();
 
+      // 🔑 Pass the idToken to Supabase
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: "google",
+        token: idToken!,
+      });
+
+      if (error) {
+        console.error("Supabase login error:", error.message);
+      } else {
+        console.log("User session:", data.session);
+      }
+    } catch (e) {
+      console.error("Google Sign-In error:", e);
+    }
+  };
   return (
     <AuthContext.Provider value={{ 
       user, 
       loading, 
       sessionLoaded, 
       signIn, 
-      signUp, 
+      // @ts-ignore
+      signUp,
+      handleGoogleLogin,
       signOut, 
       resetPassword, 
       getValidAccessToken, 

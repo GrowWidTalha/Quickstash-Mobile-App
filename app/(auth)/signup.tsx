@@ -17,10 +17,11 @@ import FormField from "~/components/FormField";
 import Input from "~/components/Input";
 import { useAuth } from "../../contexts/AuthContext";
 
+
 const { width } = Dimensions.get("window");
 
 const SignUp = () => {
-  const { signUp } = useAuth();
+  const { signUp, handleGoogleLogin } = useAuth();
 
   const [credentials, setCredentials] = useState({
     email: "",
@@ -127,10 +128,7 @@ const SignUp = () => {
                 />
               }
               onPress={() => {
-                Alert.alert(
-                  "Google OAuth",
-                  "Your (Design Rehab) OAuth api request is being reviewed."
-                );
+                handleGoogleLogin()
               }}
             />
           </View>

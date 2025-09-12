@@ -20,7 +20,7 @@ import { useAuth } from "../../contexts/AuthContext";
 const { width } = Dimensions.get("window");
 
 const SignIn = () => {
-  const { signIn } = useAuth();
+  const { signIn, handleGoogleLogin } = useAuth();
 
   const [credentials, setCredentials] = useState({
     email: "",
@@ -139,10 +139,7 @@ const SignIn = () => {
                 />
               }
               onPress={() => {
-                Alert.alert(
-                  "Google OAuth",
-                  "Your (Design Rehab) OAuth api request is being reviewed."
-                );
+              handleGoogleLogin()
               }}
             />
           </View>
