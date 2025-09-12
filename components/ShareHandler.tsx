@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import * as React from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { useSaves } from '~/contexts/SavesContext';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon } from 'react-native-heroicons/outline';
+import { Container } from './Container';
+import Button from './ui/button';
 
 interface ShareHandlerProps {
   isVisible: boolean;
@@ -11,11 +14,11 @@ interface ShareHandlerProps {
   sharedUrl?: string;
 }
 
-export const ShareHandler: React.FC<ShareHandlerProps> = ({ 
-  isVisible, 
-  onClose, 
-  sharedUrl 
-}) => {
+export const ShareHandler: React.FC<ShareHandlerProps> = ({
+  isVisible,
+  onClose,
+  sharedUrl,
+}: ShareHandlerProps) => {
   const { addSave, isOnline } = useSaves();
   const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
@@ -114,81 +117,56 @@ export const ShareHandler: React.FC<ShareHandlerProps> = ({
       animationType="fade"
       onRequestClose={handleClose}
     >
-      <View className="flex-1 bg-black/50 justify-center items-center p-4">
-        <View className={`bg-white rounded-2xl p-6 w-full max-w-sm border-2 ${getStatusColor()}`}>
+      <View className="flex-1 bg-black/60 justify-center items-center px-4">
+        <View className={`bg-white rounded-3xl shadow-sm p-6 w-full max-w-sm border border-neutral-200 ${getStatusColor()}`}>
           {/* Header */}
           <View className="flex-row items-center justify-between mb-4">
-            <Text className="text-lg font-bold text-gray-900">
-              Share Intent
-            </Text>
-            <TouchableOpacity onPress={handleClose}>
-              <Text className="text-gray-500 text-xl">×</Text>
+            <Text className="text-xl font-pmedium text-accent">Share Intent</Text>
+            <TouchableOpacity onPress={handleClose} className="rounded-full p-1 hover:bg-neutral-100">
+              <Text className="text-gray-400 text-2xl">×</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Content */}
-          <View className="mb-6">
-            {/* Status Icon and Message */}
-            <View className="flex-row items-center justify-center mb-4">
-              {getStatusIcon()}
-            </View>
-            
-            <Text className="text-center text-gray-700 mb-4">
-              {message}
-            </Text>
-
-            {/* Shared URL Display */}
-            {sharedUrl && (
-              <View className="bg-gray-100 rounded-lg p-3 mb-4">
-                <Text className="text-xs text-gray-500 mb-1">Shared URL:</Text>
-                <Text className="text-sm text-gray-800" numberOfLines={3}>
-                  {sharedUrl}
-                </Text>
-              </View>
-            )}
-
-            {/* Offline Notice */}
-            {!isOnline && status === 'success' && (
-              <View className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                <View className="flex-row items-center">
-                  <ExclamationTriangleIcon size={16} className="text-amber-500 mr-2" />
-                  <Text className="text-amber-700 text-sm">
-                    You're offline - URL will sync when connected
-                  </Text>
-                </View>
-              </View>
-            )}
+          {/* Status Icon and Message */}
+          <View className="items-center mb-4">
+            {getStatusIcon()}
+            <Text className="text-center text-gray-700 mt-2 font-pregular text-base min-h-[24px]">{message}</Text>
           </View>
+
+          {/* Shared URL Display */}
+          {sharedUrl && (
+            <View className="bg-neutral-100 rounded-xl p-3 mb-4 border border-neutral-200">
+              <Text className="text-xs text-gray-500 mb-1 font-pregular">Shared URL:</Text>
+              <Text className="text-sm text-gray-800 font-pmedium" numberOfLines={3}>{sharedUrl}</Text>
+            </View>
+          )}
+
+          {/* Offline Notice */}
+          {!isOnline && status === 'success' && (
+            <View className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex-row items-center">
+              <ExclamationTriangleIcon size={16} className="text-amber-500 mr-2" />
+              <Text className="text-amber-700 text-sm font-pregular">You're offline - URL will sync when connected</Text>
+            </View>
+          )}
 
           {/* Actions */}
-          <View className="space-y-2">
+          <View className="gap-3 mt-2">
             {status === 'success' && (
-              <TouchableOpacity
+              <Button
+                variant="default"
                 onPress={handleViewSaves}
-                className="bg-blue-500 p-3 rounded-lg"
+                className="w-full"
               >
-                <Text className="text-white text-center font-medium">
-                  View My Saves
-                </Text>
-              </TouchableOpacity>
+                View My Saves
+              </Button>
             )}
-            
-            <TouchableOpacity
+            <Button
+              variant={status === 'success' ? 'outline' : 'default'}
               onPress={handleClose}
-              className={`p-3 rounded-lg ${
-                status === 'success' 
-                  ? 'bg-gray-200' 
-                  : 'bg-blue-500'
-              }`}
+              className="w-full"
             >
-              <Text className={`text-center font-medium ${
-                status === 'success' 
-                  ? 'text-gray-700' 
-                  : 'text-white'
-              }`}>
-                {status === 'success' ? 'Close' : 'Try Again'}
-              </Text>
-            </TouchableOpacity>
+              {status === 'success' ? 'Close' : 'Try Again'}
+            </Button>
           </View>
         </View>
       </View>

@@ -6,16 +6,36 @@ import { useStashDrawer } from '~/contexts/StashDrawerContext';
 import SearchInput from '~/components/SearchInput';
 import RecentSaves from '~/components/RecentSaves';
 import { useSaves } from '~/contexts/SavesContext';
+import { useEffect, useState } from 'react';
+import {EmptyState } from "~/components/EmptyState"
+import { useLocalSearchParams } from 'expo-router';
 
 export default function Saves() {
   const { loading: authLoading } = useAuth();
   const { openDrawer } = useStashDrawer();
-  const { 
-    saves, 
-    loading, 
-    refreshing, 
-    fetchSaves 
+  const {
+    saves,
+    unreadArticles,
+    loading,
+    refreshing,
+    fetchSaves
   } = useSaves();
+  const params = useLocalSearchParams()
+  console.log(params)
+  const parseTabParam = (tab: unknown): 'all' | 'unread' => {
+    if (typeof tab !== 'string' || tab.trim() === '') return 'all';
+    const t = tab.toLowerCase();
+    return t === 'unread' ? 'unread' : 'all';
+  };
+
+  const initialTab = parseTabParam(params?.tab);
+  
+  const [selectedTab, setSelectedTab] = useState<'all' | 'unread'>(initialTab || 'all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    setSelectedTab(parseTabParam(params?.tab));
+  }, [params?.tab]);
 
   const onRefresh = async () => {
     await fetchSaves();
@@ -25,11 +45,52 @@ export default function Saves() {
     openDrawer();
   };
 
+  const displayedArticles = selectedTab === 'all' ? saves : unreadArticles;
+  const filteredArticles = searchQuery
+    ? displayedArticles.filter((article) =>
+        article.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        article.source?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        article.excerpt?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        article.url?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : displayedArticles;
+
   return (
     <SafeAreaView className='flex-1 px-4 bg-[#FCFCFC]'>
       <Header title="Saves" variant="master" />
+      <SearchInput value={searchQuery} onChange={setSearchQuery} />
 
-      <SearchInput />
+      {/* Tabs Filter */}
+        <View className="flex-row p-2 justify-center mt-4 mb-2 bg-white border border-[#232c38] rounded-2xl overflow-hidden">
+          <TouchableOpacity
+            className={`flex-1 py-2 rounded-2xl items-center justify-center ${selectedTab === 'unread' ? 'bg-[#232c38]' : 'bg-white'
+              }`}
+            onPress={() => setSelectedTab('unread')}
+            activeOpacity={0.85}
+          >
+            <Text
+              className={`font-pmedium text-lg ${selectedTab === 'unread' ? 'text-white' : 'text-[#232c38]'
+                }`}
+            >
+              Unread
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className={`flex-1  rounded-2xl items-center justify-center ${selectedTab === 'all' ? 'bg-[#232c38]' : 'bg-white'
+              }`}
+            onPress={() => setSelectedTab('all')}
+            activeOpacity={0.85}
+          >
+            <Text
+              className={`font-pmedium text-lg ${selectedTab === 'all' ? 'text-white' : 'text-[#232c38]'
+                }`}
+            >
+              All
+            </Text>
+          </TouchableOpacity>
+        </View>
+
       <ScrollView
         className='flex-1 h-full mt-4'
         showsVerticalScrollIndicator={false}
@@ -46,36 +107,26 @@ export default function Saves() {
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 }}>
             <ActivityIndicator size="large" color="#232c38" />
           </View>
-        ) : saves.length === 0 ? (
-          <EmptyState handleAddFirstStash={handleAddFirstStash} />
+        ) : filteredArticles.length === 0 ? (
+          searchQuery ? (
+            <EmptyState heading="No results found" subHeading="Try searching with different keywords" 
+            handleAddFirstStash={handleAddFirstStash}
+            
+            />
+          ) : (
+            <EmptyState 
+              heading={selectedTab === "unread" ? "You're all caught up for now" : undefined}
+              subHeading={selectedTab === "unread" ? "Stash new articles to read later" : undefined}
+              label={selectedTab === "unread" ? "Add new Stash" : undefined}
+              handleAddFirstStash={handleAddFirstStash}
+            />
+          )
         ) : (
           <>
-            <RecentSaves articles={saves} label="All Stashes"/>
+            <RecentSaves articles={filteredArticles} label={selectedTab === 'all' ? 'All Stashes' : 'Unread Stashes'} />
           </>
         )}
       </ScrollView>
     </SafeAreaView >
   );
-}
-
-const EmptyState = ({ handleAddFirstStash }: { handleAddFirstStash: () => void }) => {
-  return <View style={{ alignItems: 'center', marginTop: 32 }}>
-    <View style={{ width: 180, height: 180, marginBottom: 18, justifyContent: 'center', alignItems: 'center' }}>
-      <Image source={require('~/assets/images/empty-state-illustration.png')} style={{ width: 160, height: 160 }} resizeMode="contain" />
-    </View>
-    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#232c38', marginBottom: 6, textAlign: 'center' }}>
-      Stashy looked around... nothing here yet!
-    </Text>
-    <Text style={{ fontSize: 15, color: '#666', marginBottom: 24, textAlign: 'center' }}>
-      Try saving something — links, articles, or ideas.
-    </Text>
-    <TouchableOpacity
-      style={{ backgroundColor: '#232c38', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 28, flexDirection: 'row', alignItems: 'center' }}
-      onPress={handleAddFirstStash}
-      activeOpacity={0.85}
-    >
-      <Text style={{ color: '#fff', fontSize: 22, fontWeight: 'bold', marginRight: 10 }}>＋</Text>
-      <Text style={{ color: '#fff', fontSize: 17, fontWeight: 'bold', letterSpacing: 0.5 }}>Add Your First Stash</Text>
-    </TouchableOpacity>
-  </View>
 }

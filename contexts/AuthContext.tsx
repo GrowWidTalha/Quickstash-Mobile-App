@@ -145,7 +145,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.session) {
         setSession(data.session);
         setUser(data.user);
-        await fetcher("register", {email: data.user.email, password: password})
+      
+        // sync with our DB — call backend login that accepts supabaseUserId
+        try {
+          const dbResp = await fetcher("login", { supabaseUserId: data.user!.id });
+          if (!dbResp.success) {
+            console.warn("Failed to sync user with DB after password login:", dbResp.error);
+            // handle gracefully (show toast, track telemetry, etc.)
+          } else {
+            console.log("DB synced (password login)", dbResp.data.user?.id);
+          }
+        } catch (e) {
+          console.error("Error calling backend login endpoint:", e);
+        }
+      
         console.log('~ 🚀: Sign-in successful. Session set.');
       }
       
@@ -259,24 +272,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const handleGoogleLogin = async () => {
     try {
       await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
+      await GoogleSignin.signIn();
       const { idToken } = await GoogleSignin.getTokens();
-
-      // 🔑 Pass the idToken to Supabase
+  
+      // Use same API shape you already used
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: "google",
-        token: idToken!,
+        token: idToken!, // matches your current SDK usage
       });
-
+  
       if (error) {
         console.error("Supabase login error:", error.message);
-      } else {
-        console.log("User session:", data.session);
+        return;
+      }
+  
+      // set session/user locally if present
+      if (data?.session) {
+        setSession(data.session);
+        setUser(data.session.user);
+      } else if (data?.user) {
+        setUser(data.user);
+      }
+  
+      // get the supabase user id (prefer session.user if present)
+      const supabaseUserId = data?.session?.user?.id || data?.user?.id;
+      if (!supabaseUserId) {
+        console.error("No supabase user returned after Google sign-in");
+        return;
+      }
+  
+      // SYNC: call backend to ensure user row exists in DB
+      try {
+        const dbResp = await fetcher("login", { supabaseUserId });
+        if (!dbResp.success) {
+          console.error("Failed to sync Google user with DB:", dbResp.error);
+          // optionally show an error toast or fallback UX
+        } else {
+          console.log("Google user synced with DB:", dbResp.data.user?.id);
+        }
+      } catch (e) {
+        console.error("Error calling backend login endpoint for Google:", e);
       }
     } catch (e) {
       console.error("Google Sign-In error:", e);
     }
   };
+  
   return (
     <AuthContext.Provider value={{ 
       user, 

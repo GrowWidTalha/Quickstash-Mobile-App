@@ -20,6 +20,15 @@ const SearchInput: React.FC<SearchInputProps> = ({ value, onChange, onSearch, pl
     if (onChange) onChange(text);
   };
 
+  const handleButtonPress = () => {
+    if (inputValue.length > 0) {
+      setInputValue('');
+      if (onChange) onChange('');
+    } else {
+      onSearch?.(inputValue);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <TextInput
@@ -34,9 +43,9 @@ const SearchInput: React.FC<SearchInputProps> = ({ value, onChange, onSearch, pl
       <TouchableOpacity
         style={styles.button}
         activeOpacity={0.8}
-        onPress={() => onSearch?.(inputValue)}
+        onPress={handleButtonPress}
       >
-        <SvgXml xml={svgIcons.search} width={15} height={15} />
+        <SvgXml xml={inputValue.length > 0 ? svgIcons.add : svgIcons.search} width={15} height={15} />
       </TouchableOpacity>
     </View>
   );

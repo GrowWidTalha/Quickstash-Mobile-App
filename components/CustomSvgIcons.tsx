@@ -62,5 +62,16 @@ clock: `
 </clipPath>
 </defs>
 </svg>
+`,
+add: `
+<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="rotate(45 7.5 7.5)">
+    <path d="M7.5 11.25V3.75" stroke="white" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M10 7.5H11.25" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M3.75 7.5H7.2875" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M7.5 11.25V3.75" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
+
 `
 }
