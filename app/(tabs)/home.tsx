@@ -33,7 +33,6 @@ export default function Home() {
     openDrawer();
   };
 
-  console.log(unreadArticles)
 
   const unreadFiltered = searchQuery
     ? unreadArticles.filter((article) =>

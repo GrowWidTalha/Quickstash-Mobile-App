@@ -17,6 +17,7 @@ export interface StashArticle {
   createdAt: string;
   updatedAt: string;
   source: string;
+  isFetchingAllowed?: boolean;
 }
 
 export interface StashArticleDetail extends StashArticle {
@@ -138,7 +139,14 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         console.log(response)
         
         if (response.success && response?.data) {
-          setSaves(prev => [response?.data, ...prev]);
+          let source = extractHostname(url)
+          
+          const newSave = {
+            ...response.data,
+            source,
+          };
+        
+          setSaves(prev => [newSave, ...prev]);
           return { success: true };
         } else {
           return { success: false, error: response.error || 'Failed to add save' };

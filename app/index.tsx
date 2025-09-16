@@ -10,7 +10,6 @@ const Splash = () => {
   const router = useRouter();
   const navigation = useNavigation();
   const { user, loading, sessionLoaded } = useAuth();
-  console.log(loading, user)
   const [isUnmounting, setIsUnmounting] = useState(false);
   const [isMounted, setIsMounted] = useState(true);
 
@@ -30,7 +29,6 @@ const Splash = () => {
         setTimeout(() => {
           if (!isMounted) return;
           if (user) {
-            console.log(user)
             router.replace("/(tabs)/home");
           } else {
             router.replace("/(auth)");

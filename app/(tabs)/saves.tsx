@@ -21,7 +21,6 @@ export default function Saves() {
     fetchSaves
   } = useSaves();
   const params = useLocalSearchParams()
-  console.log(params)
   const parseTabParam = (tab: unknown): 'all' | 'unread' => {
     if (typeof tab !== 'string' || tab.trim() === '') return 'all';
     const t = tab.toLowerCase();

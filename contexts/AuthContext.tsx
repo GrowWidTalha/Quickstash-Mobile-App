@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
         
         if (initialSession) {
-          console.log('~ 🚀: Initial session found:', initialSession);
+          console.log('~ 🚀: Initial session found:');
           setSession(initialSession);
           setUser(initialSession.user);
         } else {
@@ -68,7 +68,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('~ 🚀: Auth state changed:', event, session?.user?.email);
+        console.log('~ 🚀: Auth state changed:');
         
         if (session) {
           setSession(session);

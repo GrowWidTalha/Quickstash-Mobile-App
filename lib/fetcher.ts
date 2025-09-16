@@ -13,6 +13,9 @@ export const fetcher = async (
 ): Promise<any> => {
   const API_KEY = process.env.EXPO_PUBLIC_API_KEY ?? "";
   const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
+  // const API_URL = "https://dbe2f37263ca.ngrok-free.app/api/v1";
+
+  console.log(API_URL)
 
 
   // Get access token automatically unless skipAuth is true
@@ -57,8 +60,10 @@ export const fetcher = async (
     });
 
     const data = await response.json();
+    console.log(data)
     return data;
   } catch (error: any) {
+    console.log(error)
     return {
       success: false,
       data: null,

@@ -4,7 +4,6 @@ import { useAuth } from "~/contexts/AuthContext";
 
 export default function AuthLayout() {
   const { user, loading } = useAuth();
-  console.log(user)
 
 
   useEffect(() => {

@@ -33,6 +33,7 @@ interface StashArticleDetail {
   createdAt: string;
   updatedAt: string;
   source: string;
+  isFetchingAllowed?: boolean;
 }
 
 const ReadStashPage = () => {
@@ -46,6 +47,7 @@ const ReadStashPage = () => {
 
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [isPaywalled, setIsPaywalled] = useState(false)
 
   const [shouldExtract, setShouldExtract] = useState(false); // whether we should run extractor now
   const [backgroundRefresh, setBackgroundRefresh] = useState(false); // whether we're silently refreshing
@@ -78,80 +80,413 @@ const ReadStashPage = () => {
   }
 
   const INJECTED_EXTRACTOR = `
-    (function(){
-      function loadScript(src, cb){
-        var s=document.createElement('script'); s.src=src; s.onload=cb; s.onerror=cb; document.documentElement.appendChild(s);
+(function(){
+  // --- utilities ---
+  function loadScript(src, cb){
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = cb;
+    s.onerror = cb;
+    document.documentElement.appendChild(s);
+  }
+
+  function safePost(obj){
+    try {
+      var msg = JSON.stringify(obj);
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(msg);
+      } else if (window.postMessage) {
+        // fallback (older RN webview/native setups)
+        window.postMessage(msg);
+      } else {
+        // last fallback: console
+        console.log('EXTRACTOR_MSG', msg);
       }
-      function stripDangerous(el){
-        // remove script/style/iframe/link/noscript
-        var bad = el.querySelectorAll('script,noscript,iframe,link,style');
-        bad.forEach(function(n){ n.parentNode && n.parentNode.removeChild(n) });
-        // remove inline handlers
-        var all = el.getElementsByTagName('*');
-        for(var i=0;i<all.length;i++){
-          var attrs = all[i].attributes;
-          for(var j=attrs.length-1;j>=0;j--){
-            if(attrs[j].name && attrs[j].name.toLowerCase().indexOf('on') === 0){
-              all[i].removeAttribute(attrs[j].name);
+    } catch (e) {
+      console.error('post error', e);
+    }
+  }
+
+  // Remove potentially dangerous nodes and attributes
+  function stripDangerous(el){
+    if (!el) return;
+    var bad = el.querySelectorAll('script,noscript,iframe,link,style,form,object,embed');
+    bad.forEach(function(n){ n.parentNode && n.parentNode.removeChild(n) });
+
+    // remove inline event handlers and javascript: hrefs
+    var all = el.getElementsByTagName('*');
+    for(var i=0;i<all.length;i++){
+      var attrs = all[i].attributes;
+      for(var j=attrs.length-1;j>=0;j--){
+        var name = attrs[j].name || '';
+        var val = attrs[j].value || '';
+        if(name.toLowerCase().indexOf('on') === 0){
+          all[i].removeAttribute(name);
+        } else if(name.toLowerCase() === 'href' && val.trim().toLowerCase().indexOf('javascript:') === 0){
+          all[i].removeAttribute('href');
+        }
+      }
+    }
+  }
+
+  // Expand lazy-loaded images (data-src, data-lazy, data-original, srcset)
+  function expandLazyImages(root){
+    try {
+      var imgs = (root || document).querySelectorAll('img');
+      imgs.forEach(function(img){
+        var attrCandidates = ['data-src','data-lazy','data-original','data-srcset','data-actualsrc','data-hires'];
+        for(var k=0;k<attrCandidates.length;k++){
+          var a = attrCandidates[k];
+          if(img.hasAttribute(a) && !img.src){
+            img.src = img.getAttribute(a);
+          }
+        }
+        if(img.hasAttribute('data-srcset') && !img.getAttribute('srcset')){
+          img.setAttribute('srcset', img.getAttribute('data-srcset'));
+        }
+      });
+    } catch(e){}
+  }
+
+  // Try clicking "read more" type buttons to expand truncated content
+  function clickReadMore(root){
+    try {
+      var buttons = Array.from((root || document).querySelectorAll('button,a,span'));
+      var triggers = ['read more','show more','view full','continue reading','more','expand','read full','load more'];
+      buttons.forEach(function(b){
+        try{
+          var t = (b.innerText || b.textContent || '').toLowerCase().trim();
+          if(!t) return;
+          for(var i=0;i<triggers.length;i++){
+            if(t.indexOf(triggers[i]) !== -1){
+              // visible check
+              var rect = b.getBoundingClientRect && b.getBoundingClientRect();
+              if(!rect || rect.width === 0 && rect.height === 0) return;
+              try { b.click(); } catch(e) {}
+              return;
             }
           }
-        }
-      }
-      function sendResult(article){
-        try {
-          var lead = null;
-          var og = document.querySelector('meta[property=\"og:image\"]') || document.querySelector('meta[name=\"twitter:image\"]');
-          if(og) lead = og.getAttribute('content');
-          var container = document.createElement('div');
-          container.innerHTML = article.content || '';
-          stripDangerous(container);
-          var cleanHTML = container.innerHTML;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ok:true, article:{ title: article.title || document.title, content: cleanHTML, byline: article.byline || '', excerpt: article.excerpt || (article.textContent || '').slice(0,200), lead_image_url: article.lead_image_url || lead || null }}));
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ok:false, err: 'post failed: ' + e.message}));
-        }
-      }
-      function tryParse(){
-        try{
-          if(window.Readability){
-            try {
-              var doc = document.cloneNode(true);
-              var article = new Readability(doc).parse();
-              if(article && article.content && article.content.length > 20){
-                return sendResult(article);
-              }
-            } catch(e) { /* swallow, fallthrough to fallback */ }
+        }catch(e){}
+      });
+    } catch(e){}
+  }
+
+  // Parse JSON-LD structured data and return useful article fields if present
+  function parseJsonLD(){
+    var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+    for(var i=0;i<scripts.length;i++){
+      try {
+        var json = JSON.parse(scripts[i].textContent);
+        // json might be array or single object
+        var candidates = Array.isArray(json) ? json : [json];
+        for(var j=0;j<candidates.length;j++){
+          var obj = candidates[j];
+          if(!obj) continue;
+          var t = (obj['@type'] || '').toLowerCase();
+          if(t === 'newsarticle' || t === 'article' || t === 'blogposting' || t.indexOf('article') !== -1){
+            return {
+              title: obj.headline || obj.name || obj.title,
+              author: (obj.author && (obj.author.name || obj.author)) || (Array.isArray(obj.author) && obj.author[0] && obj.author[0].name),
+              datePublished: obj.datePublished || obj.dateCreated || obj.dateModified,
+              lead: (obj.image && (typeof obj.image === 'string' ? obj.image : (obj.image.url || (Array.isArray(obj.image) && obj.image[0])))) || null,
+              body: obj.articleBody || obj.description || null
+            };
           }
-          // fallback: try to find article/main
-          var el = document.querySelector('article') || document.querySelector('main') || document.querySelector('[role=\"article\"]') || document.body;
-          var articleFallback = {
-            title: document.title,
-            content: el ? el.innerHTML : document.body.innerHTML,
-            textContent: el ? el.innerText : document.body.innerText,
-            excerpt: (el ? (el.innerText||'').slice(0,300) : (document.body.innerText||'').slice(0,300)),
-            byline: ''
-          };
-          return sendResult(articleFallback);
-        } catch (e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ok:false, err: e.message}));
+        }
+      } catch(e){}
+    }
+    return null;
+  }
+
+  // Read OpenGraph / Twitter / meta tags
+  function parseMeta(){
+    var g = function(q){ var el = document.querySelector(q); return el ? el.getAttribute('content') : null; };
+    return {
+      ogTitle: g('meta[property="og:title"]') || g('meta[name="twitter:title"]') || document.title || null,
+      ogDesc: g('meta[property="og:description"]') || g('meta[name="twitter:description"]') || g('meta[name="description"]') || null,
+      ogImage: g('meta[property="og:image"]') || g('meta[name="twitter:image"]') || null,
+      author: g('meta[name="author"]') || null,
+      published: g('meta[property="article:published_time"]') || g('meta[name="article:published_time"]') || null,
+      lang: document.documentElement.lang || document.documentElement.getAttribute('lang') || null
+    };
+  }
+
+  // Choose the "best" content node by word count and link-density heuristics
+  function findBestCandidate(){
+    var selectors = ['article','main','[role="article"]','[role="main"]','[itemprop="articleBody"]','.post','.article','.entry-content','.content'];
+    var nodes = [];
+    selectors.forEach(function(sel){
+      Array.from(document.querySelectorAll(sel)).forEach(n => nodes.push(n));
+    });
+    // if none found, consider body children
+    if(nodes.length === 0){
+      nodes = Array.from(document.body.children);
+    }
+
+    function textScore(n){
+      try {
+        var text = (n.innerText || '').trim();
+        var words = text.split(/\\s+/).filter(Boolean).length;
+        var links = n.querySelectorAll('a').length;
+        var linkDensity = links === 0 ? 0 : links / Math.max(1, words);
+        // prefer large text and low link density, slightly favor nodes with headings
+        var score = words * (1 - Math.min(linkDensity, 0.9));
+        if(n.querySelector('h1,h2')) score *= 1.08;
+        return score;
+      } catch(e){ return 0; }
+    }
+
+    var best = null;
+    var bestScore = 0;
+    nodes.forEach(function(n){
+      var s = textScore(n);
+      if(s > bestScore){
+        bestScore = s;
+        best = n;
+      }
+    });
+    return {node: best, score: bestScore};
+  }
+
+  // sanitize and produce clean html string from node
+  function cleanHTMLFromNode(node){
+    if(!node) return '';
+    var clone = node.cloneNode(true);
+    stripDangerous(clone);
+    expandLazyImages(clone);
+    // remove likely "related"/"recommended" blocks via class substrings
+    var junkSelectors = ['.related', '.recommended', '.share', '.social', '.post-nav', '.comments', '.comment', '.subscribe', '.ad-','[aria-label="ads"]'];
+    junkSelectors.forEach(function(sel){
+      try {
+        Array.from(clone.querySelectorAll('[class*="' + sel.replace('.', '') + '"]')).forEach(n => n.parentNode && n.parentNode.removeChild(n));
+      } catch(e){}
+    });
+    return clone.innerHTML || '';
+  }
+
+  // merge fields from multiple sources with simple heuristics
+  function mergeArticle(readabilityArticle, jsonld, meta, fallbackNode){
+    var article = {
+      title: null,
+      content: null,
+      textContent: null,
+      excerpt: null,
+      byline: null,
+      lead_image_url: null,
+      published_date: null,
+      lang: meta.lang || null,
+      isReadability: !!readabilityArticle
+    };
+
+    // title preference: json-ld > og > readability > document.title
+    article.title = (jsonld && jsonld.title) || meta.ogTitle || (readabilityArticle && readabilityArticle.title) || document.title;
+
+    // byline
+    article.byline = (jsonld && jsonld.author) || meta.author || (readabilityArticle && (readabilityArticle.byline || readabilityArticle.author)) || '';
+
+    // published date
+    article.published_date = (jsonld && jsonld.datePublished) || meta.published || (readabilityArticle && readabilityArticle.pubDate) || null;
+
+    // lead image
+    article.lead_image_url = (jsonld && jsonld.lead) || meta.ogImage || (readabilityArticle && readabilityArticle.lead_image_url) || null;
+
+    // content: prefer readability.content (clean) else jsonld.body else cleaned fallback node
+    if(readabilityArticle && readabilityArticle.content && (readabilityArticle.content.length > 100)) {
+      article.content = readabilityArticle.content;
+      article.textContent = readabilityArticle.textContent || (readabilityArticle.content.replace(/<[^>]+>/g,'').slice(0,3000));
+    } else if(jsonld && jsonld.body){
+      article.content = '<div>' + jsonld.body + '</div>';
+      article.textContent = (jsonld.body || '').replace(/<[^>]+>/g,'');
+    } else if(fallbackNode){
+      article.content = cleanHTMLFromNode(fallbackNode.node || fallbackNode);
+      article.textContent = (fallbackNode.node ? (fallbackNode.node.innerText || '') : (fallbackNode.innerText || '')) || '';
+    } else {
+      article.content = '';
+      article.textContent = '';
+    }
+
+    // excerpt: prefer meta desc then readability excerpt then generated excerpt
+    article.excerpt = (meta.ogDesc) || (readabilityArticle && (readabilityArticle.excerpt || (readabilityArticle.textContent || '').slice(0,300))) || (article.textContent || '').slice(0,300);
+
+    return article;
+  }
+
+  // Detect paywall indicators
+  function detectPaywall(){
+    try {
+      var paywallIndicators = [
+        // Common paywall class/ID patterns
+        '.paywall', '.subscription', '.premium', '.member-only', '.locked',
+        '[class*="paywall"]', '[class*="subscription"]', '[class*="premium"]',
+        '[class*="member-only"]', '[class*="locked"]', '[class*="blocked"]',
+        // Text indicators
+        'subscribe to read', 'premium content', 'member exclusive', 'pay to read',
+        'subscription required', 'premium article', 'locked content'
+      ];
+      
+      // Check for paywall elements
+      for(var i=0; i<paywallIndicators.length; i++){
+        var elements = document.querySelectorAll(paywallIndicators[i]);
+        if(elements.length > 0){
+          return true;
         }
       }
-      function start(){
-        // Try load Readability, but continue with fallback if it doesn't work quickly
-        if(window.Readability){
-          return tryParse();
+      
+      // Check page text for paywall indicators
+      var bodyText = (document.body.innerText || '').toLowerCase();
+      var paywallTexts = [
+        'subscribe to continue reading', 'premium content', 'member exclusive',
+        'pay to read', 'subscription required', 'unlock this article',
+        'sign up to read', 'login to read', 'become a member'
+      ];
+      
+      for(var j=0; j<paywallTexts.length; j++){
+        if(bodyText.indexOf(paywallTexts[j]) !== -1){
+          return true;
         }
+      }
+      
+      return false;
+    } catch(e){
+      return false;
+    }
+  }
+
+  // main parsing attempt
+  function tryParse(){
+    try {
+      // Check for paywall first
+      var isPaywalled = detectPaywall();
+      if(isPaywalled){
+        safePost({ ok: false, err: 'paywall_detected', paywalled: true });
+        return;
+      }
+
+      // Pre steps: click "read more" and expand lazy images to maximize available content
+      clickReadMore(document);
+      expandLazyImages(document);
+
+      var meta = parseMeta();
+      var jsonld = parseJsonLD();
+
+      // Prepare an isolated document for Readability (safer than passing entire original document)
+      function createReadabilityDoc(htmlString){
+        var dd = document.implementation.createHTMLDocument(document.title || '');
+        try { dd.body.innerHTML = htmlString; } catch(e){ dd.body.innerHTML = (htmlString || ''); }
+        dd.title = document.title || dd.title;
+        return dd;
+      }
+
+      // Candidate node for fallback
+      var fallbackNode = findBestCandidate();
+
+      // Attempt to use JSON-LD body first if it's long enough
+      if(jsonld && jsonld.body && jsonld.body.length > 200){
+        var tmpDoc = createReadabilityDoc(jsonld.body);
+        // we won't run Readability on it; use jsonld directly as main source
+        var article = mergeArticle(null, jsonld, meta, { node: tmpDoc.body });
+        // sanitize final HTML
+        var container = document.createElement('div'); container.innerHTML = article.content || '';
+        stripDangerous(container);
+        article.content = container.innerHTML;
+        safePost({ ok: true, source: 'jsonld', article: article });
+        return;
+      }
+
+      // Try Readability (load lib if needed)
+      var runReadability = function(){
+        try {
+          // Build a cleaned HTML string from the fallback candidate (prefer content-focused node)
+          var candidateHTML = '';
+          if(fallbackNode && fallbackNode.node){
+            candidateHTML = cleanHTMLFromNode(fallbackNode.node);
+          } else {
+            candidateHTML = cleanHTMLFromNode(document.body);
+          }
+
+          // Create a small document for Readability to avoid head/meta noise
+          var rdDoc = createReadabilityDoc(candidateHTML);
+
+          // Run Readability
+          var article = null;
+          try {
+            if(window.Readability && typeof window.Readability === 'function'){
+              article = new Readability(rdDoc).parse();
+            } else if (typeof Readability === 'function') {
+              article = new Readability(rdDoc).parse();
+            }
+          } catch(e) {
+            article = null;
+          }
+
+          // Merge results with metadata
+          var merged = mergeArticle(article, jsonld, meta, fallbackNode);
+
+          // Sanitize content HTML strongly before sending
+          var container = document.createElement('div');
+          container.innerHTML = merged.content || '';
+          stripDangerous(container);
+          // Optionally remove empty nodes and whitespace
+          merged.content = container.innerHTML;
+
+          // final heuristics: if both content and textContent are very short, prefer fallback node content
+          if(((merged.textContent || '').trim().length < 120) && fallbackNode && fallbackNode.node){
+            merged.content = cleanHTMLFromNode(fallbackNode.node);
+            merged.textContent = (fallbackNode.node.innerText || '').slice(0,5000);
+            merged.excerpt = merged.textContent.slice(0,300);
+            merged.isReadability = !!article;
+          }
+
+          safePost({ ok: true, source: (article ? 'readability' : 'fallback'), article: merged });
+        } catch(err) {
+          safePost({ ok:false, err: 'parse-run: ' + (err && err.message) });
+        }
+      };
+
+      if(window.Readability){
+        runReadability();
+      } else {
+        // load Readability and run; but also set a timeout fallback to run anyway (in case script doesn't load)
+        var done = false;
         loadScript('https://unpkg.com/@mozilla/readability@0.4.4/Readability.js', function(){
-          tryParse();
+          if(done) return;
+          done = true;
+          setTimeout(runReadability, 0);
         });
-        // fallback attempt after 2s regardless
-        setTimeout(tryParse, 2000);
+        // fallback attempt after 2s in any case
+        setTimeout(function(){
+          if(done) return;
+          done = true;
+          runReadability();
+        }, 2000);
       }
-      if(document.readyState === 'complete' || document.readyState === 'interactive') start();
-      else document.addEventListener('DOMContentLoaded', start);
-    })();
-    true;
-    `
+
+    } catch(e){
+      safePost({ ok:false, err: 'tryParse: ' + (e && e.message) });
+    }
+  }
+
+  // Start when DOM ready
+  function start(){
+    try {
+      // quick pre-clean
+      stripDangerous(document.documentElement);
+      if(document.readyState === 'complete' || document.readyState === 'interactive'){
+        tryParse();
+      } else {
+        document.addEventListener('DOMContentLoaded', tryParse);
+        // also attempt after 3s because some sites are SPA-like
+        setTimeout(tryParse, 3000);
+      }
+    } catch(e){
+      safePost({ ok:false, err: 'start: ' + (e && e.message) });
+    }
+  }
+
+  start();
+})(); true;
+`;
+
 
   const startExtraction = (url: string) => {
     console.log("Starting Extraction process")
@@ -162,11 +497,12 @@ const ReadStashPage = () => {
       clearTimeout(extractionTimeoutRef.current)
       extractionTimeoutRef.current = null
     }
-    // set a safety timeout (10s)
+    // set a safety timeout (30s) - increased for better reliability
     extractionTimeoutRef.current = setTimeout(() => {
       setExtracting(false)
+      setIsPaywalled(true)
       setExtractError('Extraction timed out — site may block extraction or be paywalled.')
-    }, 10000) as unknown as number
+    }, 30000) as unknown as number
 
     // load the URL into the hidden webview (we render it below).
     // just ensure webviewRef.current exists and reloads with new url
@@ -222,18 +558,28 @@ const ReadStashPage = () => {
         return;
       }
 
-      // No good cached content — extract if online, otherwise show offline message
+      // No good cached content — extract if online and fetching is allowed, otherwise show appropriate message
       setShouldExtract(true);
-      if (isOnline) {
+      if (isOnline && (articleFromAPI.isFetchingAllowed !== false)) {
         startExtraction(articleFromAPI.url);
-      } else {
+      } else if (!isOnline) {
         setExtractError('Content not available offline');
+      } else if (articleFromAPI.isFetchingAllowed === false) {
+        setIsPaywalled(true);
+        setExtractError('Content extraction is not allowed for this site');
       }
     } catch (err) {
       console.error('Cache check failed:', err);
-      // fallback extraction attempt if online
+      // fallback extraction attempt if online and fetching is allowed
       setShouldExtract(true);
-      if (isOnline) startExtraction(articleFromAPI.url);
+      if (isOnline && (articleFromAPI.isFetchingAllowed !== false)) {
+        startExtraction(articleFromAPI.url);
+      } else if (!isOnline) {
+        setExtractError('Content not available offline');
+      } else if (articleFromAPI.isFetchingAllowed === false) {
+        setIsPaywalled(true);
+        setExtractError('Content extraction is not allowed for this site');
+      }
     }
   }, [startExtraction]);
 
@@ -253,7 +599,17 @@ const ReadStashPage = () => {
 
     if (!payload.ok) {
       setExtracting(false);
-      setExtractError(payload.err || 'Extraction failed');
+      
+      // Handle paywall detection specifically
+      if (payload.paywalled || payload.err === 'paywall_detected') {
+        setIsPaywalled(true);
+        setExtractError('This content appears to be behind a paywall or subscription.');
+        // Update the article to mark fetching as not allowed
+        setArticle(prev => prev ? { ...prev, isFetchingAllowed: false } : null);
+      } else {
+        setExtractError(payload.err || 'Extraction failed');
+      }
+      
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
       return;
     }
@@ -510,11 +866,34 @@ const ReadStashPage = () => {
                     </View> */}
 
             {extractError && (
-              <View style={{ padding: 12, backgroundColor: '#fff1f2', borderRadius: 8, marginBottom: 12 }}>
-                <Text style={{ color: '#b91c1c' }}>{extractError}</Text>
-                <TouchableOpacity style={{ marginTop: 8 }} onPress={() => { setExtractError(null); startExtraction(article?.url || '') }}>
-                  <Text style={{ color: '#1e88e5' }}>Retry extraction</Text>
-                </TouchableOpacity>
+              <View style={{ padding: 12, backgroundColor: isPaywalled ? '#fff7ed' : '#fff1f2', borderRadius: 8, marginBottom: 12 }}>
+                <Text style={{ color: isPaywalled ? '#92400e' : '#b91c1c' }}>{extractError}</Text>
+                
+                {isPaywalled ? (
+                  <View style={{ marginTop: 8, flexDirection: 'row', gap: 12 }}>
+                    <TouchableOpacity 
+                      style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#1e88e5', borderRadius: 6 }}
+                      onPress={() => Linking.openURL(article?.url || '')}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '600' }}>Open Original</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f3f4f6', borderRadius: 6 }}
+                      onPress={() => { 
+                        setExtractError(null); 
+                        setIsPaywalled(false); 
+                        setArticle(prev => prev ? { ...prev, isFetchingAllowed: true } : null);
+                        startExtraction(article?.url || '') 
+                      }}
+                    >
+                      <Text style={{ color: '#374151', fontWeight: '600' }}>Try Again</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={{ marginTop: 8 }} onPress={() => { setExtractError(null); startExtraction(article?.url || '') }}>
+                    <Text style={{ color: '#1e88e5' }}>Retry extraction</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -561,7 +940,7 @@ const ReadStashPage = () => {
 
       </SafeAreaView>
 
-      {isOnline && (shouldExtract || backgroundRefresh || extracting) && (
+      {isOnline && (article?.isFetchingAllowed !== false) && (shouldExtract || backgroundRefresh || extracting) && (
         <WebView
           ref={(r: any) => webviewRef.current = r}
           source={{ uri: article?.url || '' }}
