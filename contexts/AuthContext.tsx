@@ -3,6 +3,7 @@ import { supabase } from '~/constants/supabase';
 import { Session, User, AuthError } from '@supabase/supabase-js';
 import { fetcher } from '../lib/fetcher';
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -52,11 +53,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           console.log('~ 🚀: Initial session found:');
           setSession(initialSession);
           setUser(initialSession.user);
+          // cache last known user for offline hydration
+          try {
+            await AsyncStorage.setItem('offline_last_user', JSON.stringify(initialSession.user));
+          } catch (e) {
+            console.warn('Failed to cache last user for offline use', e);
+          }
         } else {
           console.log('~ 🚀: No initial session found.');
+          // Try offline hydration of user if any
+          try {
+            const cachedUserRaw = await AsyncStorage.getItem('offline_last_user');
+            if (cachedUserRaw) {
+              const cachedUser: User = JSON.parse(cachedUserRaw);
+              setUser(cachedUser);
+              console.log('~ 🚀: Hydrated user from offline cache.');
+            }
+          } catch (e) {
+            console.warn('Failed to hydrate user from offline cache', e);
+          }
         }
       } catch (error) {
         console.error('~ 🚀: Error loading initial session:', error);
+        // On error (possibly offline), try to hydrate user from cache
+        try {
+          const cachedUserRaw = await AsyncStorage.getItem('offline_last_user');
+          if (cachedUserRaw) {
+            const cachedUser: User = JSON.parse(cachedUserRaw);
+            setUser(cachedUser);
+            console.log('~ 🚀: Hydrated user from offline cache after error.');
+          }
+        } catch (e) {
+          console.warn('Failed to hydrate user from offline cache after error', e);
+        }
       }
       
       setSessionLoaded(true);
@@ -73,9 +102,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (session) {
           setSession(session);
           setUser(session.user);
+          try {
+            await AsyncStorage.setItem('offline_last_user', JSON.stringify(session.user));
+          } catch (e) {
+            console.warn('Failed to cache last user on auth change', e);
+          }
         } else {
           setSession(null);
           setUser(null);
+          try { await AsyncStorage.removeItem('offline_last_user'); } catch {}
         }
         
         setLoading(false);
@@ -145,6 +180,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.session) {
         setSession(data.session);
         setUser(data.user);
+        try { await AsyncStorage.setItem('offline_last_user', JSON.stringify(data.user)); } catch {}
       
         // sync with our DB — call backend login that accepts supabaseUserId
         try {
@@ -236,6 +272,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setSession(null);
       setUser(null);
+      try { await AsyncStorage.removeItem('offline_last_user'); } catch {}
       setLoading(false);
     } catch (error) {
       console.error('~ 🚀: Sign-out error:', error);

@@ -65,9 +65,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name='archived'
+        options={{
+          href: null,
+          title: 'Archived',
+        }}
+      />
+      <Tabs.Screen
         name='stats'
         options={{
-          title: 'Stats',
+          title: 'Stashy',
           tabBarIcon: ({ color, focused }) => <SvgXml xml={svgIcons.stats} color={
             focused ? theme.colors.quickStashPrimary : theme.colors.tabBarAccent
           } />,

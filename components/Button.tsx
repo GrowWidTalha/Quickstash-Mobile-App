@@ -6,12 +6,12 @@ import * as Progress from "react-native-progress";
 import theme from "~/constants/theme";
 
 export const buttonVariants = cva(
-  "py-[15px] px-4 rounded-2xl flex flex-row items-center justify-between space-x-2 border-[1px]",
+  "py-[15px] px-4 rounded-2xl flex flex-row items-center justify-between space-x-2 border-[1px] shadow-sm",
   {
     variants: {
       variant: {
         default: "bg-primary border-primary",
-        outline: " border-neutral bg-neutral",
+        outline: "bg-[#ECECEC] border-[#E0E0E0]",
         destructive: "bg-error border-error",
       },
     },

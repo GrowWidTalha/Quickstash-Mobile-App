@@ -1,15 +1,26 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Text, View, Image, ScrollView, Platform, Linking } from 'react-native';
+import { Text, View, Image, ScrollView, Platform, Linking, TouchableOpacity } from 'react-native';
 import Header from '~/components/header';
 import Button from '~/components/Button';
 import { useAuth } from '~/contexts/AuthContext';
-import { Icon } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import theme from '~/constants/theme';
 import { router } from 'expo-router';
+import { useSaves } from '~/contexts/SavesContext';
+import { OfflineStorage } from '~/lib/offlineStorage';
 
 export default function Profile() {
   const { signOut, user } = useAuth();
+  const {
+    saves,
+    archivedArticles,
+    unarchiveSave,
+    fetchSaves,
+    syncOfflineActions,
+    isOnline,
+    hasOfflineActions,
+    loading,
+  } = useSaves();
 
   const handleRateApp = () => {
     if (Platform.OS === 'ios') {
@@ -23,24 +34,84 @@ export default function Profile() {
     Linking.openURL('mailto:support@quickstash.pro');
   };
 
+  const handleSyncOffline = async () => {
+    await syncOfflineActions();
+  };
+
+  const handleClearCache = async () => {
+    await OfflineStorage.clearAllCache();
+    await fetchSaves();
+  };
+
+  const handleRefresh = async () => {
+    await fetchSaves();
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-[#F5F5F5]">
-      <Header title="Profile" variant="master" />
+      <Header title="Settings" variant="master" />
       <ScrollView className="flex-1 px-4">
         {/* Avatar and Name Section */}
         <View className="items-center py-6">
           <View className="mb-4 h-24 w-24 overflow-hidden rounded-full bg-gray-200">
             <Image
-              source={{ uri: user?.avatarUrl || 'https://www.gravatar.com/avatar/default?d=mp' }}
+              source={{ uri: ((user as any)?.user_metadata?.avatar_url) || 'https://www.gravatar.com/avatar/default?d=mp' }}
               className="h-full w-full"
             />
           </View>
           <Text className="text-xl font-bold text-gray-800">
             {user?.email || 'Quick Stash User'}
           </Text>
+          <View className="mt-2 flex-row items-center space-x-2">
+            <View className={`h-2 w-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-yellow-500'}`} />
+            <Text className="text-gray-600 text-xs ml-2">
+              {isOnline ? 'Online' : 'Offline'}{hasOfflineActions ? ' • Pending sync' : ''}
+            </Text>
+          </View>
         </View>
 
-        {/* Action Buttons */}
+        {/* Quick Actions */}
+        <View className="mt-4">
+          <Text className="text-gray-700 font-semibold mb-3">Quick actions</Text>
+          <View className="gap-3">
+            <Button
+              text={hasOfflineActions ? 'Sync offline actions (pending)' : 'Sync offline actions'}
+              onPress={handleSyncOffline}
+              leftIcon={
+                <MaterialCommunityIcons name="sync" size={20} color={'#fff'} />
+              }
+              variant="default"
+              disabled={!hasOfflineActions || !isOnline}
+            />
+            <Button
+              text="View archived"
+              onPress={() => router.push('/(tabs)/archived')}
+              leftIcon={
+                <MaterialCommunityIcons name="archive-outline" size={20} color={theme.colors.accent.DEFAULT} />
+              }
+              variant="outline"
+            />
+            <Button
+              text={loading ? 'Refreshing…' : 'Refresh saves'}
+              onPress={handleRefresh}
+              leftIcon={
+                <MaterialCommunityIcons name="refresh" size={20} color={theme.colors.accent.DEFAULT} />
+              }
+              variant="outline"
+              disabled={loading}
+            />
+            <Button
+              text="Clear cache"
+              onPress={handleClearCache}
+              leftIcon={
+                <MaterialCommunityIcons name="trash-can-outline" size={20} color={'#fff'} />
+              }
+              variant="destructive"
+            />
+          </View>
+        </View>
+
+        {/* App Links */}
         <View className="mt-6 gap-2 space-y-4">
           <Button
             text={`Rate us on ${Platform.OS === 'ios' ? 'App Store' : 'Play Store'}`}
@@ -66,8 +137,10 @@ export default function Profile() {
             variant="outline"
           />
         </View>
-        <View className="mb-8">
-        </View>
+
+        {/* Archived link moved to dedicated screen */}
+
+        <View className="h-10" />
       </ScrollView>
     </SafeAreaView>
   );

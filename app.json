@@ -56,16 +56,6 @@
       },
       "intentFilters": [
         {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "com.quickstash.app"
-            }
-          ],
-          "category": ["BROWSABLE", "DEFAULT"]
-        },
-        {
           "action": "SEND",
           "category": ["DEFAULT"],
           "data": [

@@ -96,13 +96,11 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
 
   // Fetch all saves
   const fetchSaves = useCallback(async () => {
-    if (!user) return;
-    
     setLoading(true);
     setError(null);
     
     try {
-      if (isOnline) {
+      if (isOnline && user) {
         const response = await fetcher("getAllSaves");
         
         if (response.success && response.data?.saves) {
@@ -275,10 +273,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
 
   // Get save by ID
   const getSaveById = useCallback(async (id: string) => {
-    if (!user) return { data: null, error: 'User not authenticated' };
-    
     try {
-      if (isOnline) {
+      if (isOnline && user) {
         const response = await fetcher("getSaveById", { id });
         
         if (response.success && response.data) {
@@ -379,15 +375,24 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
 
   // Auto-fetch saves when user is authenticated
   useEffect(() => {
-    if (sessionLoaded && user) {
-      fetchSaves();
-    } else if (sessionLoaded && !user) {
-      setSaves([]);
-      setError(null);
-      // Clear cache on logout
-      OfflineStorage.clearAllCache();
+    if (sessionLoaded) {
+      if (user) {
+        fetchSaves();
+      } else {
+        if (isOnline) {
+          setSaves([]);
+          setError(null);
+          OfflineStorage.clearAllCache();
+        } else {
+          // offline and no user -> still show cached content
+          (async () => {
+            const cachedSaves = await OfflineStorage.getCachedSaves();
+            setSaves(cachedSaves.map((save: any) => ({ ...save, source: extractHostname(save.url) })));
+          })();
+        }
+      }
     }
-  }, [sessionLoaded, user, fetchSaves]);
+  }, [sessionLoaded, user, isOnline, fetchSaves]);
 
   const contextValue: SavesContextType = {
     // State

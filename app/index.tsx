@@ -5,6 +5,8 @@ import theme from "~/constants/theme";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useNavigation } from "expo-router";
 import { useAuth } from "../contexts/AuthContext";
+import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const Splash = () => {
   const router = useRouter();
@@ -12,11 +14,23 @@ const Splash = () => {
   const { user, loading, sessionLoaded } = useAuth();
   const [isUnmounting, setIsUnmounting] = useState(false);
   const [isMounted, setIsMounted] = useState(true);
+  const [isOnline, setIsOnline] = useState(true);
+  const [hasCachedSaves, setHasCachedSaves] = useState(false);
 
   // Cleanup on unmount
   useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected ?? true);
+    });
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem('cached_saves');
+        setHasCachedSaves(!!cached && cached !== '[]');
+      } catch {}
+    })();
     return () => {
       setIsMounted(false);
+      unsubscribe();
     };
   }, []);
 
@@ -31,12 +45,17 @@ const Splash = () => {
           if (user) {
             router.replace("/(tabs)/home");
           } else {
-            router.replace("/(auth)");
+            // Allow offline access if we have cached saves
+            if (!isOnline && hasCachedSaves) {
+              router.replace("/(tabs)/home");
+            } else {
+              router.replace("/(auth)");
+            }
           }
         }, 0);
       }, 1200); // Show splash for 1.2 seconds after loading
     }
-  }, [sessionLoaded, loading, user, isMounted]);
+  }, [sessionLoaded, loading, user, isMounted, isOnline, hasCachedSaves]);
 
   // Conditional rendering based on loading and unmounting states
   if (loading || !sessionLoaded) {

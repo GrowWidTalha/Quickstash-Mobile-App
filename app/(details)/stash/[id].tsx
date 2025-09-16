@@ -312,55 +312,12 @@ const ReadStashPage = () => {
   }
 
   // Detect paywall indicators
-  function detectPaywall(){
-    try {
-      var paywallIndicators = [
-        // Common paywall class/ID patterns
-        '.paywall', '.subscription', '.premium', '.member-only', '.locked',
-        '[class*="paywall"]', '[class*="subscription"]', '[class*="premium"]',
-        '[class*="member-only"]', '[class*="locked"]', '[class*="blocked"]',
-        // Text indicators
-        'subscribe to read', 'premium content', 'member exclusive', 'pay to read',
-        'subscription required', 'premium article', 'locked content'
-      ];
-      
-      // Check for paywall elements
-      for(var i=0; i<paywallIndicators.length; i++){
-        var elements = document.querySelectorAll(paywallIndicators[i]);
-        if(elements.length > 0){
-          return true;
-        }
-      }
-      
-      // Check page text for paywall indicators
-      var bodyText = (document.body.innerText || '').toLowerCase();
-      var paywallTexts = [
-        'subscribe to continue reading', 'premium content', 'member exclusive',
-        'pay to read', 'subscription required', 'unlock this article',
-        'sign up to read', 'login to read', 'become a member'
-      ];
-      
-      for(var j=0; j<paywallTexts.length; j++){
-        if(bodyText.indexOf(paywallTexts[j]) !== -1){
-          return true;
-        }
-      }
-      
-      return false;
-    } catch(e){
-      return false;
-    }
-  }
+  
 
   // main parsing attempt
   function tryParse(){
     try {
       // Check for paywall first
-      var isPaywalled = detectPaywall();
-      if(isPaywalled){
-        safePost({ ok: false, err: 'paywall_detected', paywalled: true });
-        return;
-      }
 
       // Pre steps: click "read more" and expand lazy images to maximize available content
       clickReadMore(document);

@@ -6,6 +6,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Linking,
 } from "react-native";
 import React, { useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -131,6 +132,26 @@ const SignUp = () => {
                 handleGoogleLogin()
               }}
             />
+          </View>
+
+          <View className="mt-4 px-2">
+            <Text className="text-center text-xs text-gray-600 leading-5">
+              By signing up, you agree to our
+              <Text
+                className="text-accent underline"
+                onPress={() => Linking.openURL('https://quickstash.pro/privacy')}
+              >
+                {" "}Privacy Policy{" "}
+              </Text>
+              and
+              <Text
+                className="text-accent underline"
+                onPress={() => Linking.openURL('https://quickstash.pro/terms')}
+              >
+                {" "}Terms & Conditions
+              </Text>
+              .
+            </Text>
           </View>
 
           <View className="flex flex-row items-center gap-x-1 mt-2 justify-center space-x-1 mb-4">
