@@ -34,6 +34,12 @@ interface StashArticleDetail {
   updatedAt: string;
   source: string;
   isFetchingAllowed?: boolean;
+  // Backend extractability flags (optional)
+  isExtractable?: boolean;
+  extractabilityReason?: string | null;
+  blockedBy?: string | null;
+  extractionMethod?: string | null;
+  extractabilityCheckedAt?: string | null;
 }
 
 const ReadStashPage = () => {
@@ -56,6 +62,10 @@ const ReadStashPage = () => {
 
   const webviewRef = useRef<WebView | null>(null)
   const extractionTimeoutRef = useRef<number | null>(null)
+  const attemptedAmpRef = useRef<boolean>(false)
+  const lastTriedUrlRef = useRef<string | null>(null)
+  const statusFromApiRef = useRef<'allowed' | 'blocked' | 'disallowed' | 'unknown' | null>(null)
+  const lastMethodRef = useRef<'webview_readability' | 'amp_readability' | null>(null)
 
 
 
@@ -312,12 +322,37 @@ const ReadStashPage = () => {
   }
 
   // Detect paywall indicators
-  
+  function removeOverlaysAndPaywalls(root){
+    try {
+      var doc = root || document;
+      var selectors = [
+        '[id*="cookie" i]','[class*="cookie" i]','.consent','.gdpr',
+        '.paywall','[data-paywall]','.metered','.subscription','.subscribe',
+        '[role="dialog"]','[aria-modal="true"]','.modal','.overlay',
+        '[class*="banner" i]','[id*="banner" i]'
+      ];
+      selectors.forEach(function(sel){
+        try { Array.from(doc.querySelectorAll(sel)).forEach(function(n){ if(n && n.parentNode){ n.parentNode.removeChild(n); } }); } catch(e){}
+      });
+      // common styles: fixed full-screen overlays
+      Array.from(doc.querySelectorAll('*')).forEach(function(n){
+        try {
+          var st = n && n.style;
+          if(!st) return;
+          var pos = (st.position || '').toLowerCase();
+          if(pos === 'fixed' && (n.offsetWidth || 0) > (window.innerWidth * 0.8) && (n.offsetHeight || 0) > (window.innerHeight * 0.6)){
+            if(n.parentNode) n.parentNode.removeChild(n);
+          }
+        } catch(e){}
+      });
+    } catch(e){}
+  }
 
   // main parsing attempt
   function tryParse(){
     try {
-      // Check for paywall first
+      // Check for paywall/overlays first
+      removeOverlaysAndPaywalls(document);
 
       // Pre steps: click "read more" and expand lazy images to maximize available content
       clickReadMore(document);
@@ -349,6 +384,17 @@ const ReadStashPage = () => {
         safePost({ ok: true, source: 'jsonld', article: article });
         return;
       }
+
+      // Size guardrails: bail early if DOM too large
+      try {
+        var htmlSize = (document.documentElement && document.documentElement.outerHTML ? document.documentElement.outerHTML.length : document.body && document.body.innerHTML ? document.body.innerHTML.length : 0);
+        var nodeCount = document.getElementsByTagName('*').length;
+        if(htmlSize > 2000000 || nodeCount > 12000){
+          var ampLinkEarly = (document.querySelector('link[rel="amphtml"]') || {}).href || null;
+          safePost({ ok:false, err: 'dom_too_large', alternate: { ampUrl: ampLinkEarly } });
+          return;
+        }
+      } catch(e){}
 
       // Try Readability (load lib if needed)
       var runReadability = function(){
@@ -394,9 +440,13 @@ const ReadStashPage = () => {
             merged.isReadability = !!article;
           }
 
-          safePost({ ok: true, source: (article ? 'readability' : 'fallback'), article: merged });
+          var ampLink = (document.querySelector('link[rel="amphtml"]') || {}).href || null;
+          // if very weak content, hint caller to try AMP
+          var weak = ((merged.textContent || '').trim().length < 120);
+          safePost({ ok: true, source: (article ? 'readability' : 'fallback'), article: merged, alternate: { ampUrl: ampLink }, weak: weak });
         } catch(err) {
-          safePost({ ok:false, err: 'parse-run: ' + (err && err.message) });
+          var ampLinkErr = (document.querySelector('link[rel="amphtml"]') || {}).href || null;
+          safePost({ ok:false, err: 'parse-run: ' + (err && err.message), alternate: { ampUrl: ampLinkErr } });
         }
       };
 
@@ -419,7 +469,8 @@ const ReadStashPage = () => {
       }
 
     } catch(e){
-      safePost({ ok:false, err: 'tryParse: ' + (e && e.message) });
+      var ampLinkCatch = (document.querySelector('link[rel="amphtml"]') || {}).href || null;
+      safePost({ ok:false, err: 'tryParse: ' + (e && e.message), alternate: { ampUrl: ampLinkCatch } });
     }
   }
 
@@ -445,7 +496,38 @@ const ReadStashPage = () => {
 `;
 
 
-  const startExtraction = (url: string) => {
+  function getExtractStatus(a: StashArticleDetail | null): 'allowed' | 'blocked' | 'disallowed' | 'unknown' {
+    if (!a) return 'unknown';
+    if (a.isExtractable === true) return 'allowed';
+    if (a.isExtractable === false && (a.extractabilityReason === 'disallowed' || a.extractabilityReason === 'blocked')) {
+      return (a.extractabilityReason as 'disallowed' | 'blocked');
+    }
+    if (a.isFetchingAllowed === false || (a.blockedBy && a.blockedBy.length > 0)) return 'blocked';
+    return 'unknown';
+  }
+
+  async function postExtractionTelemetry(payload: {
+    url: string;
+    attempted: boolean;
+    success: boolean;
+    method: 'webview_readability' | 'amp_readability' | null;
+    failure_reason?: string | null;
+    status_from_api: 'allowed' | 'blocked' | 'disallowed' | 'unknown' | null;
+  }) {
+    try {
+      const base = process.env.EXPO_PUBLIC_API_BASE_URL;
+      if (!base) return;
+      await fetch(`${base}/api/extraction-telemetry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      // non-blocking
+    }
+  }
+
+  const startExtraction = (url: string, opts?: { timeoutMs?: number; method?: 'webview_readability' | 'amp_readability' }) => {
     console.log("Starting Extraction process")
     setExtractError(null)
     setExtracting(true)
@@ -454,11 +536,24 @@ const ReadStashPage = () => {
       clearTimeout(extractionTimeoutRef.current)
       extractionTimeoutRef.current = null
     }
-    // set a safety timeout (30s) - increased for better reliability
+    // record attempt details
+    lastTriedUrlRef.current = url
+    lastMethodRef.current = opts?.method || 'webview_readability'
+    // set a safety timeout (status-based)
+    const timeoutMs = opts?.timeoutMs ?? 30000
     extractionTimeoutRef.current = setTimeout(() => {
       setExtracting(false)
       setIsPaywalled(true)
       setExtractError('Extraction timed out — site may block extraction or be paywalled.')
+      // telemetry on timeout
+      postExtractionTelemetry({
+        url: url,
+        attempted: true,
+        success: false,
+        method: lastMethodRef.current,
+        failure_reason: 'timeout',
+        status_from_api: statusFromApiRef.current
+      })
     }, 30000) as unknown as number
 
     // load the URL into the hidden webview (we render it below).
@@ -515,28 +610,46 @@ const ReadStashPage = () => {
         return;
       }
 
-      // No good cached content — extract if online and fetching is allowed, otherwise show appropriate message
-      setShouldExtract(true);
-      if (isOnline && (articleFromAPI.isFetchingAllowed !== false)) {
-        startExtraction(articleFromAPI.url);
-      } else if (!isOnline) {
+      // No good cached content — branch using backend flags
+      const status = getExtractStatus(articleFromAPI as any);
+      statusFromApiRef.current = status;
+      attemptedAmpRef.current = false;
+      setShouldExtract(status === 'allowed' || status === 'unknown');
+
+      if (!isOnline) {
         setExtractError('Content not available offline');
-      } else if (articleFromAPI.isFetchingAllowed === false) {
+        return;
+      }
+
+      // Explicit paywalled reason → show paywall UI
+      if ((articleFromAPI as any).extractabilityReason === 'paywalled') {
         setIsPaywalled(true);
+        setExtractError('This content appears to be behind a paywall or subscription.');
+        return;
+      }
+
+      if (status === 'disallowed' || status === 'blocked') {
+        setIsPaywalled(false);
         setExtractError('Content extraction is not allowed for this site');
+        return;
+      }
+
+      if (status === 'allowed') {
+        startExtraction(articleFromAPI.url, { timeoutMs: 20000, method: 'webview_readability' });
+      } else if (status === 'unknown') {
+        startExtraction(articleFromAPI.url, { timeoutMs: 6000, method: 'webview_readability' });
       }
     } catch (err) {
       console.error('Cache check failed:', err);
-      // fallback extraction attempt if online and fetching is allowed
-      setShouldExtract(true);
-      if (isOnline && (articleFromAPI.isFetchingAllowed !== false)) {
-        startExtraction(articleFromAPI.url);
-      } else if (!isOnline) {
-        setExtractError('Content not available offline');
-      } else if (articleFromAPI.isFetchingAllowed === false) {
-        setIsPaywalled(true);
-        setExtractError('Content extraction is not allowed for this site');
-      }
+      const status = getExtractStatus(articleFromAPI as any);
+      statusFromApiRef.current = status;
+      attemptedAmpRef.current = false;
+      setShouldExtract(status === 'allowed' || status === 'unknown');
+      if (!isOnline) { setExtractError('Content not available offline'); return; }
+      if ((articleFromAPI as any).extractabilityReason === 'paywalled') { setIsPaywalled(true); setExtractError('This content appears to be behind a paywall or subscription.'); return; }
+      if (status === 'disallowed' || status === 'blocked') { setIsPaywalled(false); setExtractError('Content extraction is not allowed for this site'); return; }
+      if (status === 'allowed') { startExtraction(articleFromAPI.url, { timeoutMs: 20000, method: 'webview_readability' }); }
+      else if (status === 'unknown') { startExtraction(articleFromAPI.url, { timeoutMs: 6000, method: 'webview_readability' }); }
     }
   }, [startExtraction]);
 
@@ -551,27 +664,50 @@ const ReadStashPage = () => {
     } catch (err) {
       setExtracting(false);
       setExtractError('Bad extractor response');
+      if (lastTriedUrlRef.current) {
+        postExtractionTelemetry({ url: lastTriedUrlRef.current, attempted: true, success: false, method: lastMethodRef.current, failure_reason: 'bad_response', status_from_api: statusFromApiRef.current })
+      }
       return;
     }
 
     if (!payload.ok) {
       setExtracting(false);
-      
+
       // Handle paywall detection specifically
       if (payload.paywalled || payload.err === 'paywall_detected') {
         setIsPaywalled(true);
         setExtractError('This content appears to be behind a paywall or subscription.');
         // Update the article to mark fetching as not allowed
         setArticle(prev => prev ? { ...prev, isFetchingAllowed: false } : null);
+      } else if (payload.err === 'dom_too_large' && payload.alternate && payload.alternate.ampUrl && !attemptedAmpRef.current) {
+        attemptedAmpRef.current = true;
+        setExtractError(null);
+        setExtracting(true);
+        startExtraction(payload.alternate.ampUrl, { timeoutMs: 20000, method: 'amp_readability' });
+        return;
       } else {
         setExtractError(payload.err || 'Extraction failed');
       }
-      
+
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+      if (lastTriedUrlRef.current) {
+        postExtractionTelemetry({ url: lastTriedUrlRef.current, attempted: true, success: false, method: lastMethodRef.current, failure_reason: payload.err || 'failed', status_from_api: statusFromApiRef.current })
+      }
       return;
     }
 
     const art = payload.article || {};
+    const ampUrl = payload.alternate && payload.alternate.ampUrl ? payload.alternate.ampUrl : null;
+    const weak = !!payload.weak;
+    if (weak && ampUrl && !attemptedAmpRef.current && lastMethodRef.current !== 'amp_readability') {
+      // Retry with AMP if initial content is weak
+      attemptedAmpRef.current = true;
+      setExtractError(null);
+      setExtracting(true);
+      if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+      startExtraction(ampUrl, { timeoutMs: 20000, method: 'amp_readability' });
+      return;
+    }
     // sanitize HTML content
     const clean = sanitizeHtml(art.content || '', {
       allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'figure', 'figcaption', 'pre', 'code']),
@@ -641,11 +777,17 @@ const ReadStashPage = () => {
       setBackgroundRefresh(false);
       setExtractError(null);
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+      if (lastTriedUrlRef.current) {
+        postExtractionTelemetry({ url: lastTriedUrlRef.current, attempted: true, success: true, method: lastMethodRef.current, status_from_api: statusFromApiRef.current })
+      }
     } catch (err: any) {
       console.error('Error handling extractor payload:', err);
       setExtracting(false);
       setExtractError(err?.message || 'Unexpected error processing article');
       if (extractionTimeoutRef.current) { clearTimeout(extractionTimeoutRef.current); extractionTimeoutRef.current = null; }
+      if (lastTriedUrlRef.current) {
+        postExtractionTelemetry({ url: lastTriedUrlRef.current, attempted: true, success: false, method: lastMethodRef.current, failure_reason: 'handle_payload_error', status_from_api: statusFromApiRef.current })
+      }
     }
   }, [article]); // include `article` so we have the latest metadata
 
@@ -703,7 +845,7 @@ const ReadStashPage = () => {
           message: article.url, // you can also include title + text
           url: article.url,     // on iOS, this is useful
         });
-  
+
         if (result.action === Share.sharedAction) {
           if (result.activityType) {
             // shared with activity type (iOS)
@@ -752,7 +894,7 @@ const ReadStashPage = () => {
     a: { onPress: (_: any, href: string) => Linking.openURL(href) }
   }), [])
 
-  if (loading || authLoading) return (
+  if (!extractError && (loading || authLoading && !isPaywalled)) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
       <Header title='' variant='detail' />
       <ScrollView contentContainerStyle={{ padding: 16, gap: "20px" }}>
@@ -762,7 +904,7 @@ const ReadStashPage = () => {
       </ScrollView>
     </SafeAreaView>
   )
-  if (error) return (
+  if (error && !isPaywalled) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
       <Header title='' variant='detail' />
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -804,8 +946,8 @@ const ReadStashPage = () => {
             style={{ flex: 1 /* ensure ScrollView fills wrapper */ }}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1, minHeight: '100%' }}
             showsVerticalScrollIndicator={false}
-            // debug checker: remove after confirming layout
-            // onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
+          // debug checker: remove after confirming layout
+          // onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
           >
             <Image
               source={{ uri: article?.featured_image_url }}
@@ -825,22 +967,22 @@ const ReadStashPage = () => {
             {extractError && (
               <View style={{ padding: 12, backgroundColor: isPaywalled ? '#fff7ed' : '#fff1f2', borderRadius: 8, marginBottom: 12 }}>
                 <Text style={{ color: isPaywalled ? '#92400e' : '#b91c1c' }}>{extractError}</Text>
-                
+
                 {isPaywalled ? (
                   <View style={{ marginTop: 8, flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#1e88e5', borderRadius: 6 }}
                       onPress={() => Linking.openURL(article?.url || '')}
                     >
                       <Text style={{ color: '#fff', fontWeight: '600' }}>Open Original</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f3f4f6', borderRadius: 6 }}
-                      onPress={() => { 
-                        setExtractError(null); 
-                        setIsPaywalled(false); 
+                      onPress={() => {
+                        setExtractError(null);
+                        setIsPaywalled(false);
                         setArticle(prev => prev ? { ...prev, isFetchingAllowed: true } : null);
-                        startExtraction(article?.url || '') 
+                        startExtraction(article?.url || '')
                       }}
                     >
                       <Text style={{ color: '#374151', fontWeight: '600' }}>Try Again</Text>
@@ -862,7 +1004,7 @@ const ReadStashPage = () => {
               </View>
             )}
 
-            {!extracting && !extractError && article?.content ? (
+            {!extracting && !extractError && !isPaywalled && article?.content ? (
               <RenderHtml
                 contentWidth={Dimensions.get('window').width - 32}
                 source={{ html: article.content }}
@@ -874,21 +1016,25 @@ const ReadStashPage = () => {
               />
             ) : (
               <>
-                <Skeleton mode="light" className="h-4 w-full mb-2 " />
-                <Skeleton mode="light" className="h-4 w-full mb-2" />
-                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2 " />
-                <Skeleton mode="light" className="h-4 w-full mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2 " />
-                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2 " />
-                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2 " />
-                <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
-                <Skeleton mode="light" className="h-4 w-full mb-2" />
+                {!isPaywalled && (
+                  <>
+                    <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                    <Skeleton mode="light" className="h-4 w-full mb-2" />
+                    <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                    <Skeleton mode="light" className="h-4 w-full mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                    <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                    <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                    <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2 " />
+                    <Skeleton mode="light" className="h-4 w-[150px] mb-2" />
+                    <Skeleton mode="light" className="h-4 w-full mb-2" />
+                  </>
+                )}
               </>
             )}
 
