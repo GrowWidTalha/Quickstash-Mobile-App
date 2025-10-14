@@ -63,7 +63,7 @@ export const useSaves = () => {
 };
 
 export const SavesProvider = ({ children }: { children: ReactNode }) => {
-  const { user, sessionLoaded } = useAuth();
+  const { user, userId, sessionLoaded } = useAuth();
   const [saves, setSaves] = useState<StashArticle[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,8 +100,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     
     try {
-      if (isOnline && user) {
-        const response = await fetcher("getAllSaves");
+      if (isOnline && user && userId) {
+        const response = await fetcher("getAllSaves", {}, { userId });
         
         if (response.success && response.data?.saves) {
           const savesWithSource = response.data.saves.map((save: any) => ({ ...save, source: extractHostname(save.url) }));
@@ -124,15 +124,15 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  }, [user, isOnline]);
+  }, [user, userId, isOnline]);
 
   // Add new save
   const addSave = useCallback(async (url: string) => {
-    if (!user) return { success: false, error: 'User not authenticated' };
+    if (!user || !userId) return { success: false, error: 'User not authenticated' };
     
     try {
       if (isOnline) {
-        const response = await fetcher("addSave", { url });
+        const response = await fetcher("addSave", { url }, { userId });
 
         console.log(response)
         
@@ -179,15 +179,15 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to add save' };
     }
-  }, [user, isOnline]);
+  }, [user, userId, isOnline]);
 
   // Update save
   const updateSave = useCallback(async (id: string, updates: Partial<StashArticle>) => {
-    if (!user) return { success: false, error: 'User not authenticated' };
+    if (!user || !userId) return { success: false, error: 'User not authenticated' };
     
     try {
       if (isOnline) {
-        const response = await fetcher("updateSave", { id, ...updates });
+        const response = await fetcher("updateSave", { id, ...updates }, { userId });
         console.log("Response from updateSave function: ",response)
         if (response.success && response.data) {
           setSaves(prev => prev.map(save => 
@@ -215,15 +215,15 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to update save' };
     }
-  }, [user, isOnline]);
+  }, [user, userId, isOnline]);
 
   // Delete save
   const deleteSave = useCallback(async (id: string) => {
-    if (!user) return { success: false, error: 'User not authenticated' };
+    if (!user || !userId) return { success: false, error: 'User not authenticated' };
     
     try {
       if (isOnline) {
-        const response = await fetcher("deleteSave", { id });
+        const response = await fetcher("deleteSave", { id }, { userId });
         
         if (response.success) {
           setSaves(prev => prev.filter(save => save.id !== id));
@@ -249,7 +249,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to delete save' };
     }
-  }, [user, isOnline]);
+  }, [user, userId, isOnline]);
 
   // Mark as read
   const markAsRead = useCallback(async (id: string) => {
@@ -274,8 +274,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
   // Get save by ID
   const getSaveById = useCallback(async (id: string) => {
     try {
-      if (isOnline && user) {
-        const response = await fetcher("getSaveById", { id });
+      if (isOnline && user && userId) {
+        const response = await fetcher("getSaveById", { id }, { userId });
         
         if (response.success && response.data) {
           // Cache the save detail for offline access
@@ -332,11 +332,11 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
       
       return { data: null, error: err.message || 'Failed to fetch save' };
     }
-  }, [user, isOnline]);
+  }, [user, userId, isOnline]);
 
   // Sync offline actions when back online
   const syncOfflineActions = useCallback(async () => {
-    if (!isOnline || !user) return;
+    if (!isOnline || !user || !userId) return;
     
     const actions = await OfflineStorage.getOfflineActions();
     if (actions.length === 0) return;
@@ -345,13 +345,13 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
       try {
         switch (action.type) {
           case 'add':
-            await fetcher("addSave", action.data);
+            await fetcher("addSave", action.data, { userId });
             break;
           case 'update':
-            await fetcher("updateSave", action.data);
+            await fetcher("updateSave", action.data, { userId });
             break;
           case 'delete':
-            await fetcher("deleteSave", action.data);
+            await fetcher("deleteSave", action.data, { userId });
             break;
         }
       } catch (error) {
@@ -364,7 +364,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     
     // Refresh saves after sync
     await fetchSaves();
-  }, [isOnline, user, fetchSaves]);
+  }, [isOnline, user, userId, fetchSaves]);
 
   // Auto-sync when coming back online
   useEffect(() => {
@@ -392,7 +392,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     }
-  }, [sessionLoaded, user, isOnline, fetchSaves]);
+  }, [sessionLoaded, user, userId, isOnline, fetchSaves]);
 
   const contextValue: SavesContextType = {
     // State

@@ -1,8 +1,7 @@
 import { supabase } from '~/constants/supabase';
 
 type FetcherOptions = {
-  token?: string;
-  accessToken?: string;
+  userId?: string;
   skipAuth?: boolean; // For endpoints that don't need authentication
 };
 
@@ -18,26 +17,16 @@ export const fetcher = async (
   console.log(API_URL)
 
 
-  // Get access token automatically unless skipAuth is true
   console.log("~🚀~: Calling function: ", functionName)
-  let accessToken: string | null = null;
-  if (!options.skipAuth) {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      accessToken = session?.access_token || null;
-    } catch (error) {
-      console.error('Failed to get access token:', error);
-    }
-  }
-
+  
   const finalParams = {
     ...params,
     ...options
   }
 
-  // Add access token to params if available
-  if (accessToken) {
-    finalParams.accessToken = accessToken;
+  // Add userId to params if provided
+  if (options.userId) {
+    finalParams.userId = options.userId;
   }
 
   try {
@@ -47,9 +36,8 @@ export const fetcher = async (
       params: finalParams
     };
 
-    // Attach token if provided (for backward compatibility)
-    if (options.token) body.params.token = options.token;
-    if (options.accessToken) body.params.accessToken = options.accessToken;
+    // Attach userId if provided
+    if (options.userId) body.params.userId = options.userId;
 
     const response = await fetch(API_URL, {
       method: "POST",

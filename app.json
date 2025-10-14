@@ -4,6 +4,7 @@
     "slug": "quickstash",
     "version": "1.0.0",
     "scheme": "com.quickstash.app",
+    "deepLink": "com.quickstash.app",
     "web": {
       "bundler": "metro",
       "output": "static",

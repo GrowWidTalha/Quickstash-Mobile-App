@@ -8,10 +8,10 @@ type AddStashResult = {
 
 export const addStash = async (
   url: string,
-  access_token: string
+  userId: string
 ): Promise<AddStashResult> => {
   try {
-    const { success, data, error } = await fetcher("addSave", { url }, { accessToken: access_token })
+    const { success, data, error } = await fetcher("addSave", { url }, { userId })
 
     if (success) {
       return { success: true, data }
