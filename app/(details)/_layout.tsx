@@ -7,16 +7,16 @@ const DetailsLayout = () => {
   return (
     <Stack
       screenOptions={{
-        animation: direction === 'backward' ? 'slide_from_left' : 'slide_from_right',
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
+        // animation: direction === 'backward' ? 'slide_from_left' : 'slide_from_right',
+        // gestureEnabled: true,
+        // gestureDirection: 'horizontal',
       }}
     >
         <Stack.Screen 
           name='stash/[id]' 
           options={{ 
             headerShown: false,
-            animation: direction === 'backward' ? 'slide_from_left' : 'slide_from_right',
+            // animation: direction === 'backward' ? 'slide_from_left' : 'slide_from_right',
           }}
         />
     </Stack>

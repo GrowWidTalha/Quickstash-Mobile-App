@@ -60,9 +60,32 @@ const Splash = () => {
   // Conditional rendering based on loading and unmounting states
   if (loading || !sessionLoaded) {
     return (
-      <View className="bg-white flex-1 items-center justify-center">
-        <Text>Loading...</Text>
+      <View className="bg-white flex-1">
+      <SafeAreaView />
+      <View className="flex-1 space-y-10 flex items-center justify-center relative p-5">
+        <Image
+          source={require("~/assets/logo.png")}
+          style={{
+            width: 150,
+            height: 150 ,
+          }}
+        />
+
+        <View className="flex flex-col space-y-5 items-center justify-center absolute bottom-10">
+          <View className="animate-spin">
+            <Progress.Circle
+              size={30}
+              borderWidth={1.2}
+              indeterminate={true}
+              color={theme.colors.accent[100]}
+            />
+          </View>
+          <Text className="text-accent-100 mt-2 text-sm font-pregular">
+            © QuickStash 2025
+          </Text>
+        </View>
       </View>
+    </View>
     );
   }
 

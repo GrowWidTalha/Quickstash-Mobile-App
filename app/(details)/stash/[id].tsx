@@ -853,7 +853,10 @@ const ReadStashPage = () => {
     try {
       const result = await markAsRead(article.id);
       if (result.success) {
-        fetchData(); // Refresh data to reflect changes
+        // Update local state immediately for better UX
+        setArticle(prev => prev ? { ...prev, isRead: true } : null);
+        // Also refresh from backend to ensure consistency
+        fetchData();
       }
       return result;
     } finally {
@@ -867,7 +870,10 @@ const ReadStashPage = () => {
     try {
       const result = await markAsUnread(article.id);
       if (result.success) {
-        fetchData(); // Refresh data to reflect changes
+        // Update local state immediately for better UX
+        setArticle(prev => prev ? { ...prev, isRead: false } : null);
+        // Also refresh from backend to ensure consistency
+        fetchData();
       }
       return result;
     } finally {
@@ -881,7 +887,10 @@ const ReadStashPage = () => {
     try {
       const result = await archiveSave(article.id);
       if (result.success) {
-        fetchData(); // Refresh data to reflect changes
+        // Update local state immediately for better UX
+        setArticle(prev => prev ? { ...prev, isArchived: true } : null);
+        // Also refresh from backend to ensure consistency
+        fetchData();
       }
       return result;
     } finally {
@@ -895,7 +904,10 @@ const ReadStashPage = () => {
     try {
       const result = await unarchiveSave(article.id);
       if (result.success) {
-        fetchData(); // Refresh data to reflect changes
+        // Update local state immediately for better UX
+        setArticle(prev => prev ? { ...prev, isArchived: false } : null);
+        // Also refresh from backend to ensure consistency
+        fetchData();
       }
       return result;
     } finally {
@@ -1021,7 +1033,7 @@ const ReadStashPage = () => {
   )
   if (error && !isPaywalled) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-      <Header title='' variant='detail' />
+      <Header title='' variant='detail' onBack={() => router.push('/(tabs)/home')} />
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={{ fontSize: 18, color: '#b91c1c', marginBottom: 12 }}>{error}</Text>
         <TouchableOpacity onPress={fetchData} style={{ marginTop: 4, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#232c38', borderRadius: 8 }}>
@@ -1037,6 +1049,7 @@ const ReadStashPage = () => {
         <Header
           title=""
           variant="detail"
+          onBack={() => router.push('/(tabs)/home')}
           detailAction={(
             <ActionsDropDown
               onOpenOriginal={() => Linking.openURL(article?.url || '')}
