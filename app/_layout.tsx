@@ -10,6 +10,7 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { SavesProvider } from '../contexts/SavesContext';
 import { ShareIntentProvider, useCustomShareIntent } from '../contexts/ShareIntentContext';
 import { StashDrawerProvider } from '../contexts/StashDrawerContext';
+import { NavigationProvider } from '../contexts/NavigationContext';
 import * as Linking from 'expo-linking';
 
 
@@ -76,25 +77,26 @@ function DeepLinkHandler() {
 
 export default function RootLayout() {
 	return (
-		<AuthProvider>
-			<SavesProvider>
-				<NativeShareIntentProvider>
-
-					<ShareIntentProvider>
-						<StashDrawerProvider>
-							<DeepLinkHandler />
-							<Stack screenOptions={{ headerShown: false }}>
-								<Stack.Screen name="index" options={{ headerShown: false }} />
-								<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-								<Stack.Screen name='(auth)' options={{ headerShown: false }} />
-							</Stack>
-							<StashDrawer />
-							<ShareHandlerWrapper />
-						</StashDrawerProvider>
-					</ShareIntentProvider>
-				</NativeShareIntentProvider>
-
-			</SavesProvider>
-		</AuthProvider>
+		<NavigationProvider>
+			<AuthProvider>
+				<SavesProvider>
+					<NativeShareIntentProvider>
+						<ShareIntentProvider>
+							<StashDrawerProvider>
+								<DeepLinkHandler />
+								<Stack screenOptions={{ headerShown: false }}>
+									<Stack.Screen name="index" options={{ headerShown: false }} />
+									<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+									<Stack.Screen name='(auth)' options={{ headerShown: false }} />
+									<Stack.Screen name="(details)" options={{ headerShown: false }} />
+								</Stack>
+								<StashDrawer />
+								<ShareHandlerWrapper />
+							</StashDrawerProvider>
+						</ShareIntentProvider>
+					</NativeShareIntentProvider>
+				</SavesProvider>
+			</AuthProvider>
+		</NavigationProvider>
 	);
 }

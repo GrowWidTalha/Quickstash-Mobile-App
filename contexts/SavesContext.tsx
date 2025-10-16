@@ -50,6 +50,10 @@ interface SavesContextType {
   unreadArticles: StashArticle[];
   archivedArticles: StashArticle[];
   unarchivedArticles: StashArticle[];
+  
+  // Navigation helpers
+  getNextSaveId: (currentId: string) => string | null;
+  getPreviousSaveId: (currentId: string) => string | null;
 }
 
 const SavesContext = createContext<SavesContextType | undefined>(undefined);
@@ -76,6 +80,25 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
   const unreadArticles = saves.filter(article => !article.isRead);
   const archivedArticles = saves.filter(article => article.isArchived);
   const unarchivedArticles = saves.filter(article => !article.isArchived);
+
+  // Navigation helpers
+  const getNextSaveId = useCallback((currentId: string): string | null => {
+    const sortedSaves = [...saves].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const currentIndex = sortedSaves.findIndex(save => save.id === currentId);
+    if (currentIndex === -1 || currentIndex === sortedSaves.length - 1) {
+      return null; // Not found or is last item
+    }
+    return sortedSaves[currentIndex + 1].id;
+  }, [saves]);
+
+  const getPreviousSaveId = useCallback((currentId: string): string | null => {
+    const sortedSaves = [...saves].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const currentIndex = sortedSaves.findIndex(save => save.id === currentId);
+    if (currentIndex === -1 || currentIndex === 0) {
+      return null; // Not found or is first item
+    }
+    return sortedSaves[currentIndex - 1].id;
+  }, [saves]);
 
   // Network status monitoring
   useEffect(() => {
@@ -420,6 +443,8 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
     unreadArticles,
     archivedArticles,
     unarchivedArticles,
+    getNextSaveId,
+    getPreviousSaveId,
   };
 
   return (

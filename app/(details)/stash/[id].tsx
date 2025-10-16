@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Dimensions, Image, Linking, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native'
 import { Provider } from 'react-native-paper'
@@ -7,15 +7,18 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { SvgFromXml } from 'react-native-svg'
 import { WebView } from 'react-native-webview'
 import ActionsDropDown from '~/components/ActionDropDown'
+import BottomActionBar from '~/components/BottomActionBar'
 import { svgIcons } from '~/components/CustomSvgIcons'
 import Header from '~/components/header'
 import { NetworkIndicator } from '~/components/NetworkIndicator'
 import { useAuth } from '~/contexts/AuthContext'
 import { StashArticle, useSaves } from '~/contexts/SavesContext'
+import { useNavigation } from '~/contexts/NavigationContext'
 import sanitizeHtml from 'sanitize-html'
 import { Skeleton } from '~/components/ui'
 import { OfflineStorage } from '~/lib/offlineStorage'
 import { extractHostname } from '~/lib/utils'
+import { Feather } from '@expo/vector-icons'
 const systemFonts = [...defaultSystemFonts, 'Menlo', 'Courier', 'monospace']
 
 
@@ -44,8 +47,10 @@ interface StashArticleDetail {
 
 const ReadStashPage = () => {
   const { id } = useLocalSearchParams()
+  const router = useRouter()
   const { loading: authLoading } = useAuth()
-  const { getSaveById, isOnline, markAsRead, markAsUnread, archiveSave, unarchiveSave, deleteSave } = useSaves()
+  const { saves, getSaveById, isOnline, markAsRead, markAsUnread, archiveSave, unarchiveSave, deleteSave, getNextSaveId, getPreviousSaveId } = useSaves()
+  const { setDirection } = useNavigation()
 
   const [article, setArticle] = useState<StashArticleDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,8 +62,32 @@ const ReadStashPage = () => {
 
   const [shouldExtract, setShouldExtract] = useState(false); // whether we should run extractor now
   const [backgroundRefresh, setBackgroundRefresh] = useState(false); // whether we're silently refreshing
+  const [loadingRead, setLoadingRead] = useState(false);
+  const [loadingArchive, setLoadingArchive] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false); // prevent re-extraction during navigation
   const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
   const ENABLE_BACKGROUND_REFRESH = false; // set to true only if you want silent refreshes
+
+  // Memoize sanitized HTML content to prevent re-sanitizing on every render
+  const sanitizedHtml = useMemo(() => {
+    if (!article?.content) return '';
+    
+    return sanitizeHtml(article.content, {
+      allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'figure', 'figcaption', 'pre', 'code']),
+      allowedAttributes: {
+        ...sanitizeHtml.defaults.allowedAttributes,
+        img: ['src', 'alt', 'width', 'height', 'loading'],
+        a: ['href', 'name', 'target', 'rel']
+      },
+      allowedSchemes: ['http', 'https', 'data', 'mailto'],
+      transformTags: {
+        'a': (tagName, attribs) => ({ 
+          tagName: 'a', 
+          attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' } 
+        })
+      }
+    });
+  }, [article?.content]);
 
   const webviewRef = useRef<WebView | null>(null)
   const extractionTimeoutRef = useRef<number | null>(null)
@@ -73,20 +102,39 @@ const ReadStashPage = () => {
 
   useEffect(() => { fetchData() }, [])
   const fetchData = async () => {
-    setLoading(true); setError(null)
+    setLoading(true); 
+    setError(null);
+    
     try {
-      const { data, error: fetchError } = await getSaveById(id as string)
+      // FIRST: Check if we have this save in the context's saves array
+      const saveFromContext = saves.find(s => s.id === id);
+      
+      if (saveFromContext) {
+        // Set basic article data immediately from context
+        setArticle(saveFromContext as StashArticle);
+        
+        // Then check for cached content (without hitting API)
+        const cached = await OfflineStorage.getCachedSaveDetail(id as string);
+        if (cached?.content) {
+          setArticle(cached);
+          setLoading(false);
+          return; // Done! No API call needed
+        }
+      }
+      
+      // ONLY call API if not in context or no cached content
+      const { data, error: fetchError } = await getSaveById(id as string);
       if (fetchError || !data) {
-        setError(fetchError || 'Failed to fetch save')
+        setError(fetchError || 'Failed to fetch save');
       } else {
-        // set base article from API (this includes fields like id, url, title)
-        setArticle(data as StashArticle)
-        // check cache and extract only if needed (or background refresh)
-        await checkCacheThenMaybeExtract(data as StashArticle)
+        setArticle(data as StashArticle);
+        await checkCacheThenMaybeExtract(data as StashArticle);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load article. Please try again.')
-    } finally { setLoading(false) }
+      setError(err.message || 'Failed to load article. Please try again.');
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   const INJECTED_EXTRACTOR = `
@@ -591,6 +639,13 @@ const ReadStashPage = () => {
           source: articleFromAPI.url ? (new URL(articleFromAPI.url).hostname.replace('www.', '')) : 'unknown'
         }));
 
+        // Skip extraction if navigating with cache
+        if (isNavigating) {
+          setIsNavigating(false);
+          setShouldExtract(false);
+          return;
+        }
+
         // Never auto-extract when cache exists unless ENABLE_BACKGROUND_REFRESH = true
         setShouldExtract(false);
 
@@ -794,38 +849,92 @@ const ReadStashPage = () => {
 
   const handleMarkAsRead = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
-    const result = await markAsRead(article.id);
-    if (result.success) {
-      fetchData(); // Refresh data to reflect changes
+    setLoadingRead(true);
+    try {
+      const result = await markAsRead(article.id);
+      if (result.success) {
+        fetchData(); // Refresh data to reflect changes
+      }
+      return result;
+    } finally {
+      setLoadingRead(false);
     }
-    return result;
   };
 
   const handleMarkAsUnread = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
-    const result = await markAsUnread(article.id);
-    if (result.success) {
-      fetchData(); // Refresh data to reflect changes
+    setLoadingRead(true);
+    try {
+      const result = await markAsUnread(article.id);
+      if (result.success) {
+        fetchData(); // Refresh data to reflect changes
+      }
+      return result;
+    } finally {
+      setLoadingRead(false);
     }
-    return result;
   };
 
   const handleArchive = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
-    const result = await archiveSave(article.id);
-    if (result.success) {
-      fetchData(); // Refresh data to reflect changes
+    setLoadingArchive(true);
+    try {
+      const result = await archiveSave(article.id);
+      if (result.success) {
+        fetchData(); // Refresh data to reflect changes
+      }
+      return result;
+    } finally {
+      setLoadingArchive(false);
     }
-    return result;
   };
 
   const handleUnarchive = async () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
-    const result = await unarchiveSave(article.id);
-    if (result.success) {
-      fetchData(); // Refresh data to reflect changes
+    setLoadingArchive(true);
+    try {
+      const result = await unarchiveSave(article.id);
+      if (result.success) {
+        fetchData(); // Refresh data to reflect changes
+      }
+      return result;
+    } finally {
+      setLoadingArchive(false);
     }
-    return result;
+  };
+
+  const handleNextArticle = () => {
+    if (!article?.id) return;
+    const nextId = getNextSaveId(article.id);
+    if (!nextId) return;
+    
+    // Find next article from context immediately
+    const nextArticle = saves.find(s => s.id === nextId);
+    
+    if (nextArticle) {
+      // Immediate optimistic update
+      setArticle(nextArticle);
+      setIsNavigating(true);
+      setDirection('forward');
+      
+      // Navigate (this will trigger useEffect -> fetchData which will check cache)
+      router.push(`/(details)/stash/${nextId}` as any);
+    }
+  };
+
+  const handlePreviousArticle = () => {
+    if (!article?.id) return;
+    const prevId = getPreviousSaveId(article.id);
+    if (!prevId) return;
+    
+    const prevArticle = saves.find(s => s.id === prevId);
+    
+    if (prevArticle) {
+      setArticle(prevArticle);
+      setIsNavigating(true);
+      setDirection('backward');
+      router.push(`/(details)/stash/${prevId}` as any);
+    }
   };
 
   const handleDelete = async () => {
@@ -863,6 +972,12 @@ const ReadStashPage = () => {
   };
 
   const contentWidth = Dimensions.get('window').width - 32
+  const screenWidth = Dimensions.get('window').width
+  const screenHeight = Dimensions.get('window').height
+
+  // Navigation state
+  const nextId = article?.id ? getNextSaveId(article.id) : null;
+  const prevId = article?.id ? getPreviousSaveId(article.id) : null;
 
   // HTML tag styles
   const tagsStyles = useMemo(() => ({
@@ -896,7 +1011,7 @@ const ReadStashPage = () => {
 
   if (!extractError && (loading || authLoading && !isPaywalled)) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-      <Header title='' variant='detail' />
+      <Header title='' variant='detail' onBack={() => router.push('/(tabs)/home')} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: "20px" }}>
         <Skeleton mode="light" className="h-52 w-full mb-2 rounded-xl" />
         <Skeleton mode="light" className="h-8 w-full mb-2" />
@@ -925,14 +1040,8 @@ const ReadStashPage = () => {
           detailAction={(
             <ActionsDropDown
               onOpenOriginal={() => Linking.openURL(article?.url || '')}
-              onMarkAsRead={handleMarkAsRead}
-              onMarkAsUnread={handleMarkAsUnread}
-              onArchive={handleArchive}
-              onUnarchive={handleUnarchive}
               onShare={handleShare}
               onDelete={handleDelete}
-              isRead={article?.isRead || false}
-              isArchived={article?.isArchived || false}
             />
           )}
         />
@@ -944,7 +1053,7 @@ const ReadStashPage = () => {
           {/* DEBUG: temporary backgroundColor to see ScrollView bounds */}
           <ScrollView
             style={{ flex: 1 /* ensure ScrollView fills wrapper */ }}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1, minHeight: '100%' }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, flexGrow: 1, minHeight: '100%' }}
             showsVerticalScrollIndicator={false}
           // debug checker: remove after confirming layout
           // onLayout={(e) => console.log('ScrollView layout:', e.nativeEvent.layout)}
@@ -1004,10 +1113,10 @@ const ReadStashPage = () => {
               </View>
             )}
 
-            {!extracting && !extractError && !isPaywalled && article?.content ? (
+            {!extracting && !extractError && !isPaywalled && sanitizedHtml ? (
               <RenderHtml
                 contentWidth={Dimensions.get('window').width - 32}
-                source={{ html: article.content }}
+                source={{ html: sanitizedHtml }}
                 systemFonts={systemFonts}
                 tagsStyles={tagsStyles}
                 renderers={renderers}
@@ -1040,6 +1149,22 @@ const ReadStashPage = () => {
 
           </ScrollView>
         </View>
+
+        {/* Bottom Action Bar */}
+        <BottomActionBar
+          isRead={article?.isRead || false}
+          isArchived={article?.isArchived || false}
+          onMarkAsRead={handleMarkAsRead}
+          onMarkAsUnread={handleMarkAsUnread}
+          onArchive={handleArchive}
+          onUnarchive={handleUnarchive}
+          onNext={nextId ? handleNextArticle : undefined}
+          onPrevious={prevId ? handlePreviousArticle : undefined}
+          hasNext={!!nextId}
+          hasPrevious={!!prevId}
+          loadingRead={loadingRead}
+          loadingArchive={loadingArchive}
+        />
 
       </SafeAreaView>
 
