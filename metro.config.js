@@ -1,11 +1,11 @@
-// metro.config.js
-// Learn more: https://docs.expo.io/guides/customizing-metro
-const { getDefaultConfig } = require('expo/metro-config');
 const { wrapWithReanimatedMetroConfig } = require('react-native-reanimated/metro-config');
 const { withNativeWind } = require('nativewind/metro');
+const {
+  getSentryExpoConfig
+} = require("@sentry/react-native/metro");
 
 /** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const config = getSentryExpoConfig(__dirname);
 
 // If nativewind needs options, pass them
 const configWithNativeWind = withNativeWind(config, { input: "./global.css" });

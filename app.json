@@ -17,7 +17,15 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-font",
-      "expo-share-intent"
+      "expo-share-intent",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "quickstash"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -36,17 +44,23 @@
         "style": "dark"
       }
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "com.quickstash.app",
-            "CFBundleURLSchemes": ["com.quickstash.app"]
+            "CFBundleURLSchemes": [
+              "com.quickstash.app"
+            ]
           }
         ],
-        "NSUserActivityTypes": ["NSUserActivityTypeBrowsingWeb"]
+        "NSUserActivityTypes": [
+          "NSUserActivityTypeBrowsingWeb"
+        ]
       }
     },
     "android": {
@@ -58,7 +72,9 @@
       "intentFilters": [
         {
           "action": "SEND",
-          "category": ["DEFAULT"],
+          "category": [
+            "DEFAULT"
+          ],
           "data": [
             {
               "mimeType": "text/plain"

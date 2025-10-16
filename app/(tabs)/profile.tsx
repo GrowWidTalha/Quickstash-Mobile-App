@@ -8,6 +8,7 @@ import theme from '~/constants/theme';
 import { router } from 'expo-router';
 import { useSaves } from '~/contexts/SavesContext';
 import { OfflineStorage } from '~/lib/offlineStorage';
+import * as Sentry from '@sentry/react-native';
 
 export default function Profile() {
   const { signOut, user } = useAuth();
@@ -116,15 +117,15 @@ export default function Profile() {
           <Button
             text={`Rate us on ${Platform.OS === 'ios' ? 'App Store' : 'Play Store'}`}
             onPress={handleRateApp}
-             leftIcon={
+            leftIcon={
               <MaterialCommunityIcons name="star" size={20} color={theme.colors.accent.DEFAULT} />
             }
             variant="outline"
           />
 
-          <Button  leftIcon={
-              <MaterialCommunityIcons name="email" size={20} color={theme.colors.accent.DEFAULT} />
-            } text="Contact Support" onPress={handleSupport} variant="outline" />
+          <Button leftIcon={
+            <MaterialCommunityIcons name="email" size={20} color={theme.colors.accent.DEFAULT} />
+          } text="Contact Support" onPress={handleSupport} variant="outline" />
           <Button
             text=" Logout"
             leftIcon={
@@ -137,11 +138,12 @@ export default function Profile() {
             variant="outline"
           />
         </View>
+        {/* <Button text='Try!' onPress={() => { console.log("hello"); Sentry.captureException(new Error('First error')) }}/> */}
 
-        {/* Archived link moved to dedicated screen */}
+      {/* Archived link moved to dedicated screen */}
 
-        <View className="h-10" />
-      </ScrollView>
-    </SafeAreaView>
-  );
+      <View className="h-10" />
+    </ScrollView>
+  </SafeAreaView>
+);
 }

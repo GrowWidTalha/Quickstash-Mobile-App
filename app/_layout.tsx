@@ -1,4 +1,3 @@
-
 import '../global.css';
 
 import { Stack, useRouter, useSegments } from "expo-router";
@@ -12,6 +11,26 @@ import { ShareIntentProvider, useCustomShareIntent } from '../contexts/ShareInte
 import { StashDrawerProvider } from '../contexts/StashDrawerContext';
 import { NavigationProvider } from '../contexts/NavigationContext';
 import * as Linking from 'expo-linking';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://076c822a5e9b40c2bb7cdc14ac1e6385@o4510199198842880.ingest.us.sentry.io/4510199200284672',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // Configure Session Replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
+  integrations: [Sentry.mobileReplayIntegration()],
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 
 function ShareHandlerWrapper() {
@@ -75,7 +94,7 @@ function DeepLinkHandler() {
 	return null;
 }
 
-export default function RootLayout() {
+export default Sentry.wrap(function RootLayout() {
 	return (
 		<NavigationProvider>
 			<AuthProvider>
@@ -99,4 +118,4 @@ export default function RootLayout() {
 			</AuthProvider>
 		</NavigationProvider>
 	);
-}
+});
