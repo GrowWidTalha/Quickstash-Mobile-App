@@ -64,7 +64,7 @@ const Splash = () => {
       <SafeAreaView />
       <View className="flex-1 space-y-10 flex items-center justify-center relative p-5">
         <Image
-          source={require("~/assets/logo.png")}
+          source={require("~/assets/logo-splash.png")}
           style={{
             width: 150,
             height: 150 ,
@@ -98,7 +98,7 @@ const Splash = () => {
       <SafeAreaView />
       <View className="flex-1 space-y-10 flex items-center justify-center relative p-5">
         <Image
-          source={require("~/assets/logo.png")}
+          source={require("~/assets/logo-splash.png")}
           style={{
             width: 150,
             height: 150 ,

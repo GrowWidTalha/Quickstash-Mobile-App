@@ -17,7 +17,10 @@ import { supabase } from "~/constants/supabase";
 
 const ResetPassword = () => {
   const { updatePassword } = useAuth();
-  const { access_token, refresh_token, type } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const { access_token, refresh_token, type } = params;
+  console.log('~ 🚀: params', params)
+  console.log('~ 🚀: access_token, refresh_token, type', access_token, refresh_token, type)
 
   const [formData, setFormData] = useState({
     newPassword: "",
@@ -33,8 +36,11 @@ const ResetPassword = () => {
   // Check if the deep link is valid and set session
   useEffect(() => {
     const handleDeepLinkSession = async () => {
+      console.log('~ 🚀: Checking deep link session with params:', { type, access_token, refresh_token });
+      
       if (type === 'recovery' && access_token && refresh_token) {
         try {
+          console.log('~ 🚀: Setting session with tokens...');
           // Set the session with the tokens from the deep link
           const { data, error } = await supabase.auth.setSession({
             access_token: access_token as string,
@@ -60,6 +66,7 @@ const ResetPassword = () => {
           });
         }
       } else {
+        console.log('~ 🚀: Missing required tokens for password reset');
         setMessage({
           type: "error",
           message: "Invalid or expired reset link. Please request a new password reset.",
@@ -67,7 +74,10 @@ const ResetPassword = () => {
       }
     };
 
-    handleDeepLinkSession();
+    // Only run if we have the required parameters
+    if (type || access_token || refresh_token) {
+      handleDeepLinkSession();
+    }
   }, [access_token, refresh_token, type]);
 
   const handleResetPassword = async () => {

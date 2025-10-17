@@ -95,7 +95,7 @@ const SignIn = () => {
             />
           </FormField>
 
-          <View className="w-full mt-2 flex flex-row items-center justify-start">
+          {/* <View className="w-full mt-2 flex flex-row items-center justify-start">
             <TouchableOpacity
               onPress={() => router.push("/(auth)/forgot-password")}
             >
@@ -103,7 +103,7 @@ const SignIn = () => {
                 Forgot Password?
               </Text>
             </TouchableOpacity>
-          </View>
+          </View> */}
 
           {message.type === "error" && message.message && (
             <Text className="text-[16px] font-pregular text-red-600">

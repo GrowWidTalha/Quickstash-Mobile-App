@@ -67,7 +67,7 @@
       "package": "com.quickstash.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#001228"
       },
       "intentFilters": [
         {

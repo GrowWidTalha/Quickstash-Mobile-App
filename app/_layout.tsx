@@ -56,10 +56,47 @@ function DeepLinkHandler() {
 			
 			// Parse the URL to extract parameters
 			const parsedUrl = Linking.parse(url);
+			console.log('~ 🚀: Parsed URL:', parsedUrl);
 			
 			// Check if it's a password reset link
-			if (parsedUrl.path === '/reset-password' && parsedUrl.queryParams) {
-				const { access_token, refresh_token, type } = parsedUrl.queryParams;
+			if (parsedUrl.path === '/reset-password') {
+				// Supabase sends tokens as URL fragments, not query params
+				let access_token, refresh_token, type;
+				
+				// Try to get from queryParams first
+				if (parsedUrl.queryParams) {
+					access_token = parsedUrl.queryParams.access_token;
+					refresh_token = parsedUrl.queryParams.refresh_token;
+					type = parsedUrl.queryParams.type;
+				}
+				
+				// If not found in queryParams, parse from URL fragments
+				if (!access_token && url.includes('#')) {
+					console.log('~ 🚀: Parsing URL fragments...');
+					const fragment = url.split('#')[1];
+					console.log('~ 🚀: Fragment:', fragment);
+					
+					// Parse fragment manually since URLSearchParams might not work in all environments
+					const fragmentParts = fragment.split('&');
+					const fragmentParams: { [key: string]: string } = {};
+					
+					fragmentParts.forEach(part => {
+						const [key, value] = part.split('=');
+						if (key && value) {
+							fragmentParams[key] = decodeURIComponent(value);
+						}
+					});
+					
+					console.log('~ 🚀: Manual fragment parsing:', fragmentParams);
+					
+					access_token = fragmentParams.access_token;
+					refresh_token = fragmentParams.refresh_token;
+					type = fragmentParams.type;
+					
+					console.log('~ 🚀: Fragment params:', { access_token, refresh_token, type });
+				}
+				
+				console.log('~ 🚀: Extracted tokens:', { access_token, refresh_token, type });
 				
 				if (type === 'recovery' && access_token) {
 					console.log('~ 🚀: Password reset deep link detected');
@@ -67,9 +104,9 @@ function DeepLinkHandler() {
 					router.push({
 						pathname: '/(auth)/reset-password',
 						params: {
-							access_token: access_token as string,
-							refresh_token: refresh_token as string,
-							type: type as string,
+							access_token: access_token,
+							refresh_token: refresh_token,
+							type: type,
 						},
 					});
 				}
@@ -78,6 +115,7 @@ function DeepLinkHandler() {
 
 		// Handle initial URL if app was opened via deep link
 		Linking.getInitialURL().then((url) => {
+			console.log('~ 🚀: Initial URL:', url);
 			if (url) {
 				handleDeepLink(url);
 			}
