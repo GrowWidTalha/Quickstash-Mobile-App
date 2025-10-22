@@ -151,6 +151,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
 
   // Add new save
   const addSave = useCallback(async (url: string) => {
+  console.log(user, userId, url)
     if (!user || !userId) return { success: false, error: 'User not authenticated' };
     
     try {
@@ -176,7 +177,7 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
         // Create optimistic update for offline
         const optimisticSave: StashArticle = {
           id: `offline_${Date.now()}`,
-          title: 'Loading...',
+          title: url,
           url,
           excerpt: '',
           featured_image_url: '',

@@ -8,7 +8,8 @@ import UnreadStashList from '~/components/UnreadStashList';
 import { useSaves } from '~/contexts/SavesContext';
 import { useStashDrawer } from '~/contexts/StashDrawerContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { EmptyState } from "~/components/EmptyState"
+import { EmptyState } from "~/components/EmptyState";
+import { OfflineDebugger } from "~/components/OfflineDebugger";
 import { router } from 'expo-router';
 import { useState } from 'react';
 
@@ -24,6 +25,7 @@ export default function Home() {
     fetchSaves
   } = useSaves();
   const [searchQuery, setSearchQuery] = useState('');
+  const [debugOfflineMode, setDebugOfflineMode] = useState(false);
 
   const onRefresh = async () => {
     await fetchSaves();
@@ -31,6 +33,10 @@ export default function Home() {
 
   const handleAddFirstStash = () => {
     openDrawer();
+  };
+
+  const handleToggleDebugOffline = () => {
+    setDebugOfflineMode(!debugOfflineMode);
   };
 
 
@@ -99,6 +105,12 @@ export default function Home() {
           </>
         )}
       </ScrollView>
+      
+      {/* Debug Tool */}
+      <OfflineDebugger 
+        debugOfflineMode={debugOfflineMode}
+        onToggleOffline={handleToggleDebugOffline}
+      />
     </SafeAreaView >
   );
 }

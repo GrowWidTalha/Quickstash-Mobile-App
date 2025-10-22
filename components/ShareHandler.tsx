@@ -80,6 +80,13 @@ export const ShareHandler: React.FC<ShareHandlerProps> = ({
     onClose();
   };
 
+  const handleRetry = () => {
+    setStatus("idle");
+    setMessage("");
+    if(!sharedUrl) return;
+    handleSharedUrl(sharedUrl);
+  };
+
   const handleViewSaves = () => {
     handleClose();
     router.push("/(tabs)/home");
@@ -190,7 +197,7 @@ export const ShareHandler: React.FC<ShareHandlerProps> = ({
             )}
             <Button
               variant={status === "success" ? "outline" : "default"}
-              onPress={handleClose}
+              onPress={status === "success" ? handleClose : handleRetry}
               className="w-full"
             >
               {status === "success" ? "Close" : "Retry"}

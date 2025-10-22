@@ -55,7 +55,7 @@ const ActionsDropDown = ({ onOpenOriginal, onShare, onDelete }: ActionsDropDownP
   };
 
   return (
-    <View>
+    <>
       <Menu
         visible={visible}
         onDismiss={() => setVisible(false)}
@@ -109,7 +109,7 @@ const ActionsDropDown = ({ onOpenOriginal, onShare, onDelete }: ActionsDropDownP
         onDismiss={() => setNotification({ visible: false, type: 'success', message: '' })}
         confirmText="OK"
       />
-    </View>
+    </>
   );
 };
 

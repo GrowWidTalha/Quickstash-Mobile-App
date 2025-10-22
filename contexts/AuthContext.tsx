@@ -31,27 +31,43 @@ export const useAuth = () => {
   return context;
 };
 
+// Helper to add timeout to async operations
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Operation timed out')), timeoutMs)
+    ),
+  ]);
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  
   // Helper function to fetch and store userId
-  const fetchAndStoreUserId = useCallback(async (email: string) => {
+  const fetchAndStoreUserId = useCallback(async (email: string): Promise<string | null> => {
     try {
+      const existingDBId = await AsyncStorage.getItem("offline_user_id")
+      console.log("found existing userId: ", existingDBId)
+      if(existingDBId){
+        setUserId(existingDBId);
+        return existingDBId
+      }
       const response = await fetcher("getUserByEmail", { email }, { skipAuth: true });
-      //  LOG  ~ 🚀: UserId response: {"data": {"avatarUrl": "https://api.dicebear.com/9.x/glass/svg?seed=alit83219", "createdAt": "2025-08-24T14:52:35.982Z", "email": "alit83219@gmail.com", "id": "cmept4xe60004b7x8s0j7cg1b", "supabaseUserId": "60bfe23b-59bd-4c7f-bff9-3371fbd52c87", "updatedAt": "2025-08-24T14:52:35.982Z"}, "error": null, "success": true}
-      console.log(`~ 🚀: UserId response:`, response)
+      console.log(`~ 🚀: UserId response:`, response);
+      
       if (response.success && response.data?.id) {
         const fetchedUserId = response.data.id;
         console.log('~ 🚀: UserId fetched:', fetchedUserId);
         setUserId(fetchedUserId);
+        
         // Store in AsyncStorage for offline access
         await AsyncStorage.setItem('offline_user_id', fetchedUserId);
-        const async_storage_userId = await AsyncStorage.getItem('offline_user_id');
-        console.log('~ 🚀: AsyncStorage UserId:', async_storage_userId);
-        console.log('~ 🚀: UserId fetched and stored:', fetchedUserId);
+        console.log('~ 🚀: UserId stored in AsyncStorage:', fetchedUserId);
         return fetchedUserId;
       } else {
         console.warn('Failed to fetch userId from backend:', response.error);
@@ -75,64 +91,66 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(true);
       
       try {
-        // Get initial session from Supabase
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        // Get initial session from Supabase with timeout
+        const { data: { session: initialSession } } = await withTimeout(
+          supabase.auth.getSession(),
+          5000
+        );
         
         if (initialSession) {
-          console.log('~ 🚀: Initial session found:');
+          console.log('~ 🚀: Initial session found');
           setSession(initialSession);
           setUser(initialSession.user);
-          // cache last known user for offline hydration
+          
+          // Cache last known user for offline hydration
           try {
             await AsyncStorage.setItem('offline_last_user', JSON.stringify(initialSession.user));
           } catch (e) {
             console.warn('Failed to cache last user for offline use', e);
           }
+          
           // Fetch and store userId for this session
           if (initialSession.user.email) {
-            await fetchAndStoreUserId(initialSession.user.email);
+            const fetchedUserId = await fetchAndStoreUserId(initialSession.user.email);
+            if (!fetchedUserId) {
+              console.warn('Failed to fetch userId, but continuing with session');
+            }
           }
         } else {
           console.log('~ 🚀: No initial session found.');
           // Try offline hydration of user if any
-          try {
-            const cachedUserRaw = await AsyncStorage.getItem('offline_last_user');
-            const cachedUserId = await AsyncStorage.getItem('offline_user_id');
-            if (cachedUserRaw) {
-              const cachedUser: User = JSON.parse(cachedUserRaw);
-              setUser(cachedUser);
-              console.log('~ 🚀: Hydrated user from offline cache.');
-            }
-            if (cachedUserId) {
-              setUserId(cachedUserId);
-              console.log('~ 🚀: Hydrated userId from offline cache.');
-            }
-          } catch (e) {
-            console.warn('Failed to hydrate user from offline cache', e);
-          }
+          await hydrateFromOfflineCache();
         }
       } catch (error) {
-        console.error('~ 🚀: Error loading initial session:', error);
+        console.error('~ 🚀: Error loading initial session (timeout or network error):', error);
         // On error (possibly offline), try to hydrate user from cache
-        try {
-          const cachedUserRaw = await AsyncStorage.getItem('offline_last_user');
-          const cachedUserId = await AsyncStorage.getItem('offline_user_id');
-          if (cachedUserRaw) {
-            const cachedUser: User = JSON.parse(cachedUserRaw);
-            setUser(cachedUser);
-            console.log('~ 🚀: Hydrated user from offline cache after error.');
-          }
-          if (cachedUserId) {
-            setUserId(cachedUserId);
-            console.log('~ 🚀: Hydrated userId from offline cache after error.');
-          }
-        } catch (e) {
-          console.warn('Failed to hydrate user from offline cache after error', e);
-        }
+        await hydrateFromOfflineCache();
+      } finally {
+        // Always set these flags to unblock navigation
+        setSessionLoaded(true);
+        setLoading(false);
       }
-      
-      setSessionLoaded(true);
-      setLoading(false);
+    };
+
+    // Helper to hydrate user from offline cache
+    const hydrateFromOfflineCache = async () => {
+      try {
+        const cachedUserRaw = await AsyncStorage.getItem('offline_last_user');
+        const cachedUserId = await AsyncStorage.getItem('offline_user_id');
+        
+        if (cachedUserRaw) {
+          const cachedUser: User = JSON.parse(cachedUserRaw);
+          setUser(cachedUser);
+          console.log('~ 🚀: Hydrated user from offline cache:', cachedUser.email);
+        }
+        
+        if (cachedUserId) {
+          setUserId(cachedUserId);
+          console.log('~ 🚀: Hydrated userId from offline cache:', cachedUserId);
+        }
+      } catch (e) {
+        console.warn('Failed to hydrate user from offline cache', e);
+      }
     };
 
     loadSession();
@@ -140,28 +158,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('~ 🚀: Auth state changed:');
+        console.log('~ 🚀: Auth state changed:', event);
         
         if (session) {
           setSession(session);
           setUser(session.user);
+          
+          // Cache user and userId
           try {
             await AsyncStorage.setItem('offline_last_user', JSON.stringify(session.user));
+            
+            // Fetch and store userId for this session
+            if (session.user.email) {
+              const fetchedUserId = await fetchAndStoreUserId(session.user.email);
+              if (!fetchedUserId) {
+                console.warn('Failed to fetch userId on auth state change');
+              }
+            }
           } catch (e) {
-            console.warn('Failed to cache last user on auth change', e);
-          }
-          // Fetch and store userId for this session
-          if (session.user.email) {
-            await fetchAndStoreUserId(session.user.email);
+            console.warn('Failed to cache user data on auth change', e);
           }
         } else {
+          // Clear all auth data
           setSession(null);
           setUser(null);
           setUserId(null);
+          
           try { 
             await AsyncStorage.removeItem('offline_last_user');
             await AsyncStorage.removeItem('offline_user_id');
-          } catch {}
+            console.log('~ 🚀: Cleared offline auth cache');
+          } catch (e) {
+            console.warn('Failed to clear offline auth cache', e);
+          }
         }
         
         setLoading(false);
@@ -169,7 +198,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchAndStoreUserId]);
 
 
   const signIn = async (email: string, password: string) => {
@@ -190,17 +219,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { error };
       }
 
-      if (data.session) {
+      if (data.session && data.user) {
         setSession(data.session);
         setUser(data.user);
-        try { await AsyncStorage.setItem('offline_last_user', JSON.stringify(data.user)); } catch {}
-      
-        // Fetch and store userId for this session
-        if (data.user.email) {
-          await fetchAndStoreUserId(data.user.email);
+        
+        // Cache user data
+        try { 
+          await AsyncStorage.setItem('offline_last_user', JSON.stringify(data.user));
+        } catch (e) {
+          console.warn('Failed to cache user', e);
         }
       
-        console.log('~ 🚀: Sign-in successful. Session set.');
+        // Fetch and store userId - BLOCK until complete
+        if (data.user.email) {
+          const fetchedUserId = await fetchAndStoreUserId(data.user.email);
+          if (!fetchedUserId) {
+            console.error('~ ❌: Failed to fetch userId from backend');
+            setLoading(false);
+            return { 
+              error: { 
+                message: 'Failed to fetch user data. Please try again.' 
+              } as AuthError 
+            };
+          }
+        }
+      
+        console.log('~ 🚀: Sign-in successful. Session and userId set.');
       }
       
       setLoading(false);
@@ -237,11 +281,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (user && session) {
         setSession(session);
         setUser(user);
-        // Fetch and store userId for this session
-        if (user.email) {
-          await fetchAndStoreUserId(user.email);
+        
+        // Cache user data
+        try {
+          await AsyncStorage.setItem('offline_last_user', JSON.stringify(user));
+        } catch (e) {
+          console.warn('Failed to cache user', e);
         }
-        console.log("~ ✅: Sign-up complete. Session set.");
+        
+        // Fetch and store userId - BLOCK until complete
+        if (user.email) {
+          const fetchedUserId = await fetchAndStoreUserId(user.email);
+          if (!fetchedUserId) {
+            console.error('~ ❌: Failed to fetch userId from backend during sign-up');
+            setLoading(false);
+            return { 
+              error: { 
+                message: 'Sign-up succeeded but failed to fetch user data. Please try signing in.' 
+              } as AuthError 
+            };
+          }
+        }
+        
+        console.log("~ ✅: Sign-up complete. Session and userId set.");
       }
   
       // 🔐 Case 2: Email confirmation is enabled — session is null
@@ -411,6 +473,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
   const handleGoogleLogin = async () => {
     try {
+      setLoading(true);
       await GoogleSignin.hasPlayServices();
       await GoogleSignin.signIn();
       const { idToken } = await GoogleSignin.getTokens();
@@ -423,26 +486,61 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   
       if (error) {
         console.error("Supabase login error:", error.message);
-        return;
+        setLoading(false);
+        throw error;
       }
   
-      // set session/user locally if present
+      // Set session/user locally if present
       if (data?.session) {
         setSession(data.session);
         setUser(data.session.user);
-        // Fetch and store userId for this session
-        if (data.session.user.email) {
-          await fetchAndStoreUserId(data.session.user.email);
+        
+        // Cache user data
+        try {
+          await AsyncStorage.setItem('offline_last_user', JSON.stringify(data.session.user));
+        } catch (e) {
+          console.warn('Failed to cache user', e);
         }
+        
+        // Fetch and store userId - BLOCK until complete
+        if (data.session.user.email) {
+          const fetchedUserId = await fetchAndStoreUserId(data.session.user.email);
+          if (!fetchedUserId) {
+            console.error('~ ❌: Failed to fetch userId from backend during Google sign-in');
+            setLoading(false);
+            throw new Error('Failed to fetch user data. Please try again.');
+          }
+        }
+        
+        console.log('~ ✅: Google sign-in successful. Session and userId set.');
       } else if (data?.user) {
         setUser(data.user);
-        // Fetch and store userId for this session
-        if (data.user.email) {
-          await fetchAndStoreUserId(data.user.email);
+        
+        // Cache user data
+        try {
+          await AsyncStorage.setItem('offline_last_user', JSON.stringify(data.user));
+        } catch (e) {
+          console.warn('Failed to cache user', e);
         }
+        
+        // Fetch and store userId
+        if (data.user.email) {
+          const fetchedUserId = await fetchAndStoreUserId(data.user.email);
+          if (!fetchedUserId) {
+            console.error('~ ❌: Failed to fetch userId from backend during Google sign-in');
+            setLoading(false);
+            throw new Error('Failed to fetch user data. Please try again.');
+          }
+        }
+        
+        console.log('~ ✅: Google sign-in successful. UserId set.');
       }
+      
+      setLoading(false);
     } catch (e) {
       console.error("Google Sign-In error:", e);
+      setLoading(false);
+      throw e;
     }
   };
   

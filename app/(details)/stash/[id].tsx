@@ -59,6 +59,7 @@ const ReadStashPage = () => {
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
   const [isPaywalled, setIsPaywalled] = useState(false)
+  const [isBlocked, setIsBlocked] = useState(false)
 
   const [shouldExtract, setShouldExtract] = useState(false); // whether we should run extractor now
   const [backgroundRefresh, setBackgroundRefresh] = useState(false); // whether we're silently refreshing
@@ -669,6 +670,7 @@ const ReadStashPage = () => {
       const status = getExtractStatus(articleFromAPI as any);
       statusFromApiRef.current = status;
       attemptedAmpRef.current = false;
+      setIsBlocked(status === 'disallowed' || status === 'blocked');
       setShouldExtract(status === 'allowed' || status === 'unknown');
 
       if (!isOnline) {
@@ -679,13 +681,15 @@ const ReadStashPage = () => {
       // Explicit paywalled reason → show paywall UI
       if ((articleFromAPI as any).extractabilityReason === 'paywalled') {
         setIsPaywalled(true);
+        setIsBlocked(false);
         setExtractError('This content appears to be behind a paywall or subscription.');
         return;
       }
 
       if (status === 'disallowed' || status === 'blocked') {
         setIsPaywalled(false);
-        setExtractError('Content extraction is not allowed for this site');
+        setIsBlocked(true);
+        setExtractError('Looks like stashy cannot get the article. open original to view.');
         return;
       }
 
@@ -699,10 +703,11 @@ const ReadStashPage = () => {
       const status = getExtractStatus(articleFromAPI as any);
       statusFromApiRef.current = status;
       attemptedAmpRef.current = false;
+      setIsBlocked(status === 'disallowed' || status === 'blocked');
       setShouldExtract(status === 'allowed' || status === 'unknown');
       if (!isOnline) { setExtractError('Content not available offline'); return; }
-      if ((articleFromAPI as any).extractabilityReason === 'paywalled') { setIsPaywalled(true); setExtractError('This content appears to be behind a paywall or subscription.'); return; }
-      if (status === 'disallowed' || status === 'blocked') { setIsPaywalled(false); setExtractError('Content extraction is not allowed for this site'); return; }
+      if ((articleFromAPI as any).extractabilityReason === 'paywalled') { setIsPaywalled(true); setIsBlocked(false); setExtractError('This content appears to be behind a paywall or subscription.'); return; }
+      if (status === 'disallowed' || status === 'blocked') { setIsPaywalled(false); setIsBlocked(true); setExtractError('Looks like stashy cannot get the article. open original to view.'); return; }
       if (status === 'allowed') { startExtraction(articleFromAPI.url, { timeoutMs: 20000, method: 'webview_readability' }); }
       else if (status === 'unknown') { startExtraction(articleFromAPI.url, { timeoutMs: 6000, method: 'webview_readability' }); }
     }
@@ -1103,6 +1108,7 @@ const ReadStashPage = () => {
                       onPress={() => {
                         setExtractError(null);
                         setIsPaywalled(false);
+                        setIsBlocked(false);
                         setArticle(prev => prev ? { ...prev, isFetchingAllowed: true } : null);
                         startExtraction(article?.url || '')
                       }}
@@ -1111,9 +1117,19 @@ const ReadStashPage = () => {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity style={{ marginTop: 8 }} onPress={() => { setExtractError(null); startExtraction(article?.url || '') }}>
-                    <Text style={{ color: '#1e88e5' }}>Retry extraction</Text>
-                  </TouchableOpacity>
+                  <View style={{ marginTop: 8, flexDirection: 'row', gap: 12 }}>
+                    {isBlocked && (
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#1e88e5', borderRadius: 6 }}
+                        onPress={() => Linking.openURL(article?.url || '')}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>Open Original</Text>
+                      </TouchableOpacity>
+                    )}
+                    {/* <TouchableOpacity onPress={() => { setExtractError(null); setIsBlocked(false); startExtraction(article?.url || '') }} style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f3f4f6', borderRadius: 6 }}>
+                      <Text style={{ color: '#374151', fontWeight: '600' }}>Retry extraction</Text>
+                    </TouchableOpacity> */}
+                  </View>
                 )}
               </View>
             )}
