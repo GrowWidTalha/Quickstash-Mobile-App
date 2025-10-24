@@ -958,8 +958,7 @@ const ReadStashPage = () => {
     if (!article?.id) return { success: false, error: 'Article ID not found.' };
     const result = await deleteSave(article.id);
     if (result.success) {
-      // Optionally navigate back or show a success message then navigate
-      fetchData(); // Refresh data to reflect changes
+      router.push('/(tabs)/home');
     }
     return result;
   };

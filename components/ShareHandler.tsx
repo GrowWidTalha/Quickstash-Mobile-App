@@ -29,6 +29,7 @@ export const ShareHandler: React.FC<ShareHandlerProps> = ({
   sharedUrl,
 }: ShareHandlerProps) => {
   const { addSave, isOnline } = useSaves();
+  
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
   const [message, setMessage] = useState("");

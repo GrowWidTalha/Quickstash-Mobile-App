@@ -152,10 +152,12 @@ export const SavesProvider = ({ children }: { children: ReactNode }) => {
   // Add new save
   const addSave = useCallback(async (url: string) => {
   console.log(user, userId, url)
-    if (!user || !userId) return { success: false, error: 'User not authenticated' };
+  
+    if (sessionLoaded &&( !user || !userId)) return { success: false, error: 'User not authenticated' };
     
     try {
       if (isOnline) {
+        // @ts-ignore - userId is not undefined when sessionLoaded is true
         const response = await fetcher("addSave", { url }, { userId });
 
         console.log(response)

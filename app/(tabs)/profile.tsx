@@ -8,6 +8,7 @@ import theme from '~/constants/theme';
 import { router } from 'expo-router';
 import { useSaves } from '~/contexts/SavesContext';
 import { OfflineStorage } from '~/lib/offlineStorage';
+import { resetOnboarding } from '~/lib/onboardingStorage';
 import * as Sentry from '@sentry/react-native';
 
 export default function Profile() {
@@ -46,6 +47,11 @@ export default function Profile() {
 
   const handleRefresh = async () => {
     await fetchSaves();
+  };
+
+  const handleReplayOnboarding = async () => {
+    await resetOnboarding();
+    router.push('/(onboarding)');
   };
 
   return (
@@ -108,6 +114,14 @@ export default function Profile() {
                 <MaterialCommunityIcons name="trash-can-outline" size={20} color={'#fff'} />
               }
               variant="destructive"
+            />
+            <Button
+              text="View app tutorial"
+              onPress={handleReplayOnboarding}
+              leftIcon={
+                <MaterialCommunityIcons name="help-circle-outline" size={20} color={theme.colors.accent.DEFAULT} />
+              }
+              variant="outline"
             />
           </View>
         </View>

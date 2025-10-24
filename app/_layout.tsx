@@ -146,6 +146,7 @@ export default Sentry.wrap(function RootLayout() {
 									<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 									<Stack.Screen name='(auth)' options={{ headerShown: false }} />
 									<Stack.Screen name="(details)" options={{ headerShown: false }} />
+									<Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
 								</Stack>
 								<StashDrawer />
 								<ShareHandlerWrapper />
